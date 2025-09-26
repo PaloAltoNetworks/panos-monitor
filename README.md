@@ -9,7 +9,9 @@ A simple, web-based monitoring dashboard for Palo Alto Networks firewalls. This 
 
 * **Web-Based Dashboard:** A clean, centralized dashboard to view the latest status, CPU/DP load, and aggregate throughput for all monitored firewalls.
 * **Historical Graphing:** Click on any firewall to view detailed historical graphs for its key performance metrics.
-* **Selectable Timeframes:** View graphs for recent, high-granularity data (last hour) or long-term, summarized trends (last 7 days, etc.) on the firewall detail pages.
+* **Selectable Timeframes:** View graphs and summary data for various timeframes, from the last 5 minutes to the last 30 days.
+* **Peak Statistics Summary:** View a table of peak values (max sessions, highest throughput, max CPU/DP load) for each firewall over your selected timeframe.
+* **Flexible Exporting:** Export peak statistics to CSV, or generate PDF reports in multiple formats: Graphs Only, Table Only, or a Combined report.
 * **CPU & Dataplane Monitoring:** Tracks the load average for both the management plane (peak core) and data plane (average of all cores).
 * **Panorama Integration:** Import all connected firewalls directly from your Panorama instance with a single click.
 * **Multi-Firewall Support:** Monitor dozens of firewalls. Firewalls can be added individually or bulk-imported from a text file.
@@ -94,11 +96,15 @@ Navigate to the **Manage Firewalls** page. You have three options:
 ### 4. Viewing Data and Graphs
 
 * The **Dashboard** will automatically update at the interval you specified in Settings, showing the latest statistics for all devices.
-* Click on any firewall's **IP address** to navigate to its detail page. Here you can view historical graphs and use the timeframe selector at the top to switch between recent high-detail data and long-term summarized trends.
+* Click on any firewall's **IP address** to navigate to its detail page. Here you can view a summary table of peak statistics, see historical graphs, and use the timeframe selector at the top to switch between recent high-detail data and long-term summarized trends.
 
-### 5. Exporting to PDF
+### 5. Exporting Peak Stats to CSV
 
-* Navigate to the **Manage Firewalls** page and use the **Export PDF Report** dropdown to generate a report. You can choose from several timeframes for either raw data or summarized averages.
+* On any firewall's detail page, you can export the summary table of peak statistics to a CSV file by clicking the **'Export Table to CSV'** button.
+
+### 6. Exporting PDF Reports
+
+* Navigate to the **Manage Firewalls** page and use the **Export PDF Report** dropdown to generate a report. You can choose from three categories of reports (Table Only, Graphs Only, Combined) across multiple timeframes.
 
 ---
 ## How It Works
@@ -108,3 +114,4 @@ Navigate to the **Manage Firewalls** page. You have three options:
 * **Data Storage:** A single-file **SQLite** database (`monitoring.db`) stores all data. Application settings, including encrypted API credentials for both firewalls and Panorama, are stored in a `settings` table.
 * **Security:** The password encryption key is stored in the `secret.key` file. **Important:** Do not delete this file, as it is required to decrypt the stored credentials. If you back up the database, back up this key file as well.
 * **PDF Generation:** The PDF reports are generated entirely on the server using **Matplotlib** to create the chart images and **FPDF2** to assemble the document.
+
