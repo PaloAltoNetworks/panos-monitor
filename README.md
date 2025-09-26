@@ -7,15 +7,16 @@ A simple, web-based monitoring dashboard for Palo Alto Networks firewalls. This 
 ---
 ## Features ✨
 
-* **Web-Based Dashboard:** A clean, centralized dashboard to view the latest status and aggregate throughput for all monitored firewalls.
-* **Historical Graphing:** Click on any firewall to view detailed historical graphs of its session count and throughput over time.
-* **CPU & Dataplane Monitoring:** Tracks the 1-minute load average for both the management plane (CPU) and data plane (DP) processors.
+* **Web-Based Dashboard:** A clean, centralized dashboard to view the latest status, CPU/DP load, and aggregate throughput for all monitored firewalls.
+* **Historical Graphing:** Click on any firewall to view detailed historical graphs for its key performance metrics.
+* **Selectable Timeframes:** View graphs for recent, high-granularity data (last hour) or long-term, summarized trends (last 7 days, etc.) on the firewall detail pages.
+* **CPU & Dataplane Monitoring:** Tracks the load average for both the management plane (peak core) and data plane (average of all cores).
 * **Panorama Integration:** Import all connected firewalls directly from your Panorama instance with a single click.
 * **Multi-Firewall Support:** Monitor dozens of firewalls. Firewalls can be added individually or bulk-imported from a text file.
 * **Persistent Storage:** Uses a local SQLite database (`monitoring.db`) to store all configuration and historical statistics.
 * **Web-Based Configuration:** Easily configure API credentials and the polling interval from a dedicated Settings page in the web UI.
 * **Background Polling:** A multi-process background worker continuously polls devices without blocking the web interface.
-* **Server-Side PDF Reporting:** Export a multi-page PDF report containing the graphs for all monitored firewalls.
+* **Server-Side PDF Reporting:** Export multi-page PDF reports with summarized or raw data for various timeframes.
 
 ---
 ## Installation & Setup
@@ -93,12 +94,11 @@ Navigate to the **Manage Firewalls** page. You have three options:
 ### 4. Viewing Data and Graphs
 
 * The **Dashboard** will automatically update at the interval you specified in Settings, showing the latest statistics for all devices.
-* Click on any firewall's **IP address** to navigate to its detail page, where you'll find historical graphs.
+* Click on any firewall's **IP address** to navigate to its detail page. Here you can view historical graphs and use the timeframe selector at the top to switch between recent high-detail data and long-term summarized trends.
 
 ### 5. Exporting to PDF
 
-* Click the **Export to PDF** button in the navigation bar at any time.
-* The server will generate a multi-page PDF report and send it to your browser for download.
+* Navigate to the **Manage Firewalls** page and use the **Export PDF Report** dropdown to generate a report. You can choose from several timeframes for either raw data or summarized averages.
 
 ---
 ## How It Works
