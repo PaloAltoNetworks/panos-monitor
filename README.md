@@ -34,7 +34,7 @@ Before you begin, you must have an administrator account on your devices with AP
 
 Clone the repository to your local machine:
 ```
-git clone [https://github.com/PaloAltoNetworks/panos-monitor]
+git clone https://github.com/PaloAltoNetworks/panos-monitor
 cd panos-monitor
 ```
 
