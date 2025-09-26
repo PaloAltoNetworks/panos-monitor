@@ -1,9 +1,7 @@
 {% extends 'base.html' %}
-
 {% block content %}
     <a href="{{ url_for('index') }}">&larr; Back to Dashboard</a>
     <h2>Historical Stats for {{ ip_address }}</h2>
-    
     <nav>
       <ul>
         <li><strong>Timeframe:</strong></li>
@@ -11,65 +9,62 @@
         <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='6h') }}" role="button" class="{{ 'primary' if current_timespan == '6h' else 'secondary outline' }}">Last 6 Hours</a></li>
         <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='24h') }}" role="button" class="{{ 'primary' if current_timespan == '24h' else 'secondary outline' }}">Last 24 Hours</a></li>
         <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='7d') }}" role="button" class="{{ 'primary' if current_timespan == '7d' else 'secondary outline' }}">Last 7 Days</a></li>
-      </ul>
+        <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='30d') }}" role="button" class="{{ 'primary' if current_timespan == '30d' else 'secondary outline' }}">Last 30 Days</a></li>
+    </ul>
     </nav>
-
-    {# **FIX**: This 'if' block checks if chart_data exists before trying to use it. #}
-    {% if chart_data %}
+    {% if full_data %}
+        <article>
+            <div class="grid">
+                <div>
+                    <h4>Peak Statistics ({{ full_data.title_prefix }})</h4>
+                    <table>
+                        <thead><tr><th>Metric</th><th>Peak Value</th></tr></thead>
+                        <tbody>
+                            <tr><td>Max Sessions</td><td>{{ full_data.summary_data.max_sessions | int }}</td></tr>
+                            <tr><td>Highest Input</td><td>{{ (full_data.summary_data.max_input / 1000000) | round(2) }} Mbps</td></tr>
+                            <tr><td>Highest Output</td><td>{{ (full_data.summary_data.max_output / 1000000) | round(2) }} Mbps</td></tr>
+                            <tr><td>Highest CPU Load</td><td>{{ full_data.summary_data.max_cpu | round(2) }}%</td></tr>
+                            <tr><td>Highest Dataplane Load</td><td>{{ full_data.summary_data.max_dp | round(2) }}%</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div>
+                     <a href="{{ url_for('export_csv', fw_id=fw_id, timespan=current_timespan) }}" role="button" class="secondary">Export Table to CSV</a>
+                </div>
+            </div>
+        </article>
         <div class="grid">
             <article>
-                <h4>{{ chart_data.title_prefix }} Input (Mbps)</h4>
+                <h4>{{ full_data.chart_data.title_prefix }} Input (Mbps)</h4>
                 <canvas id="inputChart"></canvas>
             </article>
             <article>
-                <h4>{{ chart_data.title_prefix }} Output (Mbps)</h4>
+                <h4>{{ full_data.chart_data.title_prefix }} Output (Mbps)</h4>
                 <canvas id="outputChart"></canvas>
             </article>
         </div>
         <div class="grid">
             <article>
-                <h4>{{ chart_data.title_prefix }} Active Sessions</h4>
+                <h4>{{ full_data.chart_data.title_prefix }} Active Sessions</h4>
                 <canvas id="sessionChart"></canvas>
             </article>
             <article>
-                <h4>{{ chart_data.title_prefix }} CPU & DP Load (%)</h4>
+                <h4>{{ full_data.chart_data.title_prefix }} CPU & DP Load (%)</h4>
                 <canvas id="loadChart"></canvas>
             </article>
         </div>
-    {# **FIX**: The 'else' block displays a message if no data is found. #}
     {% else %}
-        <article>
-            <p>No historical data available for this firewall in the selected timeframe.</p>
-        </article>
+        <article><p>No historical data available for this firewall in the selected timeframe.</p></article>
     {% endif %}
-
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
     <script>
-    {# **FIX**: The script content is now also safely inside the 'if' block. #}
-    {% if chart_data %}
-        const labels = {{ chart_data.labels | tojson }};
-        const inputData = {{ chart_data.input_data_mbps | tojson }};
-        const outputData = {{ chart_data.output_data_mbps | tojson }};
-        const sessionData = {{ chart_data.session_data | tojson }};
-        const cpuData = {{ chart_data.cpu_data | tojson }};
-        const dataplaneData = {{ chart_data.dataplane_data | tojson }};
-
-        // --- Input Chart ---
-        const inputCtx = document.getElementById('inputChart');
-        if (inputCtx) { new Chart(inputCtx, { type: 'line', data: { labels: labels, datasets: [ { label: 'Input (Mbps)', data: inputData, borderColor: 'rgb(54, 162, 235)', backgroundColor: 'rgba(54, 162, 235, 0.1)', fill: true, tension: 0.1 } ] }, options: { scales: { y: { beginAtZero: true } } } }); }
-
-        // --- Output Chart ---
-        const outputCtx = document.getElementById('outputChart');
-        if (outputCtx) { new Chart(outputCtx, { type: 'line', data: { labels: labels, datasets: [ { label: 'Output (Mbps)', data: outputData, borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.1)', fill: true, tension: 0.1 } ] }, options: { scales: { y: { beginAtZero: true } } } }); }
-
-        // --- Session Chart ---
-        const sessionCtx = document.getElementById('sessionChart');
-        if (sessionCtx) { new Chart(sessionCtx, { type: 'line', data: { labels: labels, datasets: [{ label: 'Active Sessions', data: sessionData, borderColor: 'rgb(75, 192, 192)', fill: false, tension: 0.1 }] }, options: { scales: { y: { beginAtZero: true } } } }); }
-        
-        // --- Load Chart ---
-        const loadCtx = document.getElementById('loadChart');
-        if (loadCtx) { new Chart(loadCtx, { type: 'line', data: { labels: labels, datasets: [ { label: 'CPU Load (Peak Core %)', data: cpuData, borderColor: 'rgb(255, 159, 64)', fill: false, tension: 0.1 }, { label: 'Dataplane Load (Avg %)', data: dataplaneData, borderColor: 'rgb(153, 102, 255)', fill: false, tension: 0.1 } ] }, options: { scales: { y: { beginAtZero: true, max: 100 } } } }); }
+    {% if full_data %}
+        const chartData = {{ full_data.chart_data | tojson }};
+        const labels = chartData.labels; const inputData = chartData.input_data_mbps; const outputData = chartData.output_data_mbps; const sessionData = chartData.session_data; const cpuData = chartData.cpu_data; const dataplaneData = chartData.dataplane_data;
+        const inputCtx = document.getElementById('inputChart'); if (inputCtx) { new Chart(inputCtx, { type: 'line', data: { labels: labels, datasets: [ { label: 'Input (Mbps)', data: inputData, borderColor: 'rgb(54, 162, 235)', backgroundColor: 'rgba(54, 162, 25, 0.1)', fill: true, tension: 0.1 } ] }, options: { scales: { y: { beginAtZero: true } } } }); }
+        const outputCtx = document.getElementById('outputChart'); if (outputCtx) { new Chart(outputCtx, { type: 'line', data: { labels: labels, datasets: [ { label: 'Output (Mbps)', data: outputData, borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.1)', fill: true, tension: 0.1 } ] }, options: { scales: { y: { beginAtZero: true } } } }); }
+        const sessionCtx = document.getElementById('sessionChart'); if (sessionCtx) { new Chart(sessionCtx, { type: 'line', data: { labels: labels, datasets: [{ label: 'Active Sessions', data: sessionData, borderColor: 'rgb(75, 192, 192)', fill: false, tension: 0.1 }] }, options: { scales: { y: { beginAtZero: true } } } }); }
+        const loadCtx = document.getElementById('loadChart'); if (loadCtx) { new Chart(loadCtx, { type: 'line', data: { labels: labels, datasets: [ { label: 'CPU Load (Peak Core %)', data: cpuData, borderColor: 'rgb(255, 159, 64)', fill: false, tension: 0.1 }, { label: 'Dataplane Load (Avg %)', data: dataplaneData, borderColor: 'rgb(153, 102, 255)', fill: false, tension: 0.1 } ] }, options: { scales: { y: { beginAtZero: true, max: 100 } } } }); }
     {% endif %}
     </script>
 {% endblock %}

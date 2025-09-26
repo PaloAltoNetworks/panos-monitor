@@ -44,18 +44,28 @@
 <div class="hover-dropdown" style="margin-bottom: 1.5rem;">
     <a role="button" href="#">Export PDF Report</a>
     <ul>
-        <li><small>High-Detail (Raw Data)</small></li>
-        <li><a href="{{ url_for('export_pdf', timespan='5m') }}">Last 5 Minutes</a></li>
-        <li><a href="{{ url_for('export_pdf', timespan='1h') }}">Last Hour</a></li>
-        <li><a href="{{ url_for('export_pdf', timespan='6h') }}">Last 6 Hours</a></li>
+        <li><small>Table Only</small></li>
+        <li><a href="{{ url_for('export_pdf', timespan='1h', type='table_only') }}">Last Hour</a></li>
+        <li><a href="{{ url_for('export_pdf', timespan='6h', type='table_only') }}">Last 6 Hours</a></li>
+        <li><a href="{{ url_for('export_pdf', timespan='24h', type='table_only') }}">Last 24 Hours</a></li>
+        <li><a href="{{ url_for('export_pdf', timespan='7d', type='table_only') }}">Last 7 Days</a></li>
+        <li><a href="{{ url_for('export_pdf', timespan='30d', type='table_only') }}">Last 30 Days</a></li>
         <li><hr></li>
-        <li><small>Summarized (Averages)</small></li>
-        <li><a href="{{ url_for('export_pdf', timespan='24h') }}">Last 24 Hours (Hourly)</a></li>
-        <li><a href="{{ url_for('export_pdf', timespan='7d') }}">Last 7 Days (Daily)</a></li>
-        <li><a href="{{ url_for('export_pdf', timespan='30d') }}">Last 30 Days (Daily)</a></li>
+        <li><small>Graphs Only</small></li>
+        <li><a href="{{ url_for('export_pdf', timespan='1h', type='graphs_only') }}">Last Hour</a></li>
+        <li><a href="{{ url_for('export_pdf', timespan='6h', type='graphs_only') }}">Last 6 Hours</a></li>
+        <li><a href="{{ url_for('export_pdf', timespan='24h', type='graphs_only') }}">Last 24 Hours</a></li>
+        <li><a href="{{ url_for('export_pdf', timespan='7d', type='graphs_only') }}">Last 7 Days</a></li>
+        <li><a href="{{ url_for('export_pdf', timespan='30d', type='graphs_only') }}">Last 30 Days</a></li>
+        <li><hr></li>
+        <li><small>Combined (Table + Graphs)</small></li>
+        <li><a href="{{ url_for('export_pdf', timespan='1h', type='combined') }}">Last Hour</a></li>
+        <li><a href="{{ url_for('export_pdf', timespan='6h', type='combined') }}">Last 6 Hours</a></li>
+        <li><a href="{{ url_for('export_pdf', timespan='24h', type='combined') }}">Last 24 Hours</a></li>
+        <li><a href="{{ url_for('export_pdf', timespan='7d', type='combined') }}">Last 7 Days</a></li>
+        <li><a href="{{ url_for('export_pdf', timespan='30d', type='combined') }}">Last 30 Days</a></li>
     </ul>
 </div>
-
 
 <div class="grid">
     <article>

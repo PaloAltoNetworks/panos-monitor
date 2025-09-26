@@ -1,4 +1,4 @@
-import flask, io
+import flask, io, csv
 from flask import Response
 import sqlite3
 import os
@@ -131,6 +131,53 @@ def settings():
     conn.close()
     return flask.render_template('settings.html', settings=settings_data)
 
+@app.route('/export/csv/<int:fw_id>')
+def export_csv(fw_id):
+    timespan = flask.request.args.get('timespan', '1h')
+    conn = get_db_connection()
+    fw = conn.execute('SELECT ip_address FROM firewalls WHERE id = ?', (fw_id,)).fetchone()
+    if not fw:
+        conn.close()
+        return "Firewall not found", 404
+
+    time_modifier = {'1h': '-1 hour', '6h': '-6 hours', '24h': '-24 hours', '7d': '-7 days'}.get(timespan, '-5 minutes')
+    query_summary = f"SELECT MAX(active_sessions) as max_sessions, MAX(total_input_bps) as max_input, MAX(total_output_bps) as max_output, MAX(cpu_load) as max_cpu, MAX(dataplane_load) as max_dp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}');"
+    summary = conn.execute(query_summary, (fw_id,)).fetchone()
+    conn.close()
+
+    if not summary or summary['max_sessions'] is None:
+        return "No data to export for this timeframe.", 404
+    
+    si = io.StringIO()
+    cw = csv.writer(si)
+    cw.writerow(['Metric', 'Peak Value'])
+    cw.writerow(['Max Sessions', summary['max_sessions']])
+    cw.writerow(['Highest Input', f"{summary['max_input'] / 1000000:.2f} Mbps"])
+    cw.writerow(['Highest Output', f"{summary['max_output'] / 1000000:.2f} Mbps"])
+    cw.writerow(['Highest CPU Load', f"{summary['max_cpu']:.2f}%"])
+    cw.writerow(['Highest Dataplane Load', f"{summary['max_dp']:.2f}%"])
+
+    output = flask.make_response(si.getvalue())
+    download_name = f"{fw['ip_address']}_summary_{timespan}.csv"
+    output.headers["Content-Disposition"] = f"attachment; filename={download_name}"
+    output.headers["Content-type"] = "text/csv"
+    return output
+
+@app.route('/export/pdf')
+def export_pdf():
+    print("Server-side PDF export process started...")
+    timespan = flask.request.args.get('timespan', '1h')
+    report_type = flask.request.args.get('type', 'graphs_only')
+    try:
+        pdf_data = report_generator.generate_report_pdf(DB_FILE, timespan, report_type)
+        if pdf_data is None: return "No data available for the selected period.", 404
+        print("PDF generation complete. Sending file to user.")
+        download_name = f"panos-report_{timespan}_{report_type}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
+        return Response(pdf_data, mimetype='application/pdf', headers={'Content-Disposition': f'attachment;filename={download_name}'})
+    except Exception as e:
+        print(f"An error occurred during PDF export: {e}")
+        return f"An error occurred: {e}", 500
+
 @app.route('/firewall/<int:fw_id>')
 def firewall_detail(fw_id):
     timespan = flask.request.args.get('timespan', '1h')
@@ -140,44 +187,48 @@ def firewall_detail(fw_id):
         conn.close()
         return "Firewall not found", 404
 
-    # --- Logic moved back into this function ---
+    # --- Get Chart and Summary Data ---
+    full_data = {}
     is_summarized = timespan in ['24h', '7d', '30d']
+    
     if is_summarized:
-        if timespan == '7d':
-            time_modifier, date_format_sql, date_format_py = '-7 days', '%Y-%m-%d', '%Y-%m-%d'
-        elif timespan == '30d':
-            time_modifier, date_format_sql, date_format_py = '-30 days', '%Y-%m-%d', '%Y-%m-%d'
-        else: # 24h
-            time_modifier, date_format_sql, date_format_py = '-24 hours', '%Y-%m-%d %H:00', '%Y-%m-%d %H:%M'
-        query = f"SELECT strftime('{date_format_sql}', timestamp) as period, AVG(active_sessions) as sessions, AVG(total_input_bps) as input_bps, AVG(total_output_bps) as output_bps, AVG(cpu_load) as cpu, AVG(dataplane_load) as dp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}') GROUP BY period ORDER BY period ASC;"
+        if timespan == '7d': time_modifier, date_format_sql, date_format_py, title_prefix = '-7 days', '%Y-%m-%d', '%Y-%m-%d', "Daily Average"
+        elif timespan == '30d': time_modifier, date_format_sql, date_format_py, title_prefix = '-30 days', '%Y-%m-%d', '%Y-%m-%d', "Daily Average"
+        else: time_modifier, date_format_sql, date_format_py, title_prefix = '-24 hours', '%Y-%m-%d %H:00', '%Y-%m-%d %H:%M', "Hourly Average"
+        query_charts = f"SELECT strftime('{date_format_sql}', timestamp) as period, AVG(active_sessions) as sessions, AVG(total_input_bps) as input_bps, AVG(total_output_bps) as output_bps, AVG(cpu_load) as cpu, AVG(dataplane_load) as dp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}') GROUP BY period ORDER BY period ASC;"
     else: # Raw data
-        if timespan == '1h': time_modifier = '-1 hour'
-        elif timespan == '6h': time_modifier = '-6 hours'
-        else: time_modifier = '-5 minutes'
-        query = f"SELECT timestamp, active_sessions as sessions, total_input_bps as input_bps, total_output_bps as output_bps, cpu_load as cpu, dataplane_load as dp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}') ORDER BY timestamp ASC;"
+        if timespan == '1h': time_modifier, title_prefix = '-1 hour', "Raw Data"
+        elif timespan == '6h': time_modifier, title_prefix = '-6 hours', "Raw Data"
+        else: time_modifier = '-5 minutes', "Raw Data"
+        query_charts = f"SELECT timestamp, active_sessions as sessions, total_input_bps as input_bps, total_output_bps as output_bps, cpu_load as cpu, dataplane_load as dp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}') ORDER BY timestamp ASC;"
 
-    stats = conn.execute(query, (fw_id,)).fetchall()
-    conn.close()
+    stats_charts = conn.execute(query_charts, (fw_id,)).fetchall()
 
-    chart_data = None
-    if stats:
+    if stats_charts:
+        query_summary = f"SELECT MAX(active_sessions) as max_sessions, MAX(total_input_bps) as max_input, MAX(total_output_bps) as max_output, MAX(cpu_load) as max_cpu, MAX(dataplane_load) as max_dp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}');"
+        summary_stats = conn.execute(query_summary, (fw_id,)).fetchone()
+        
         if is_summarized:
-            labels = [datetime.strptime(s['period'], date_format_py).strftime(date_format_py) for s in stats]
+            labels = [datetime.strptime(s['period'], date_format_py).strftime(date_format_py) for s in stats_charts]
         else:
-            labels = [datetime.strptime(s['timestamp'], '%Y-%m-%d %H:%M:%S.%f').strftime('%H:%M:%S') for s in stats]
-        chart_data = {
-            "labels": labels, "session_data": [s['sessions'] for s in stats],
-            "input_data_mbps": [s['input_bps'] / 1000000 for s in stats],
-            "output_data_mbps": [s['output_bps'] / 1000000 for s in stats],
-            "cpu_data": [s['cpu'] for s in stats], "dataplane_data": [s['dp'] for s in stats]
+            labels = [datetime.strptime(s['timestamp'], '%Y-%m-%d %H:%M:%S.%f').strftime('%H:%M:%S') for s in stats_charts]
+        
+        full_data = {
+            "chart_data": {
+                "labels": labels, "session_data": [s['sessions'] for s in stats_charts],
+                "input_data_mbps": [s['input_bps'] / 1000000 for s in stats_charts],
+                "output_data_mbps": [s['output_bps'] / 1000000 for s in stats_charts],
+                "cpu_data": [s['cpu'] for s in stats_charts], "dataplane_data": [s['dp'] for s in stats_charts]
+            },
+            "summary_data": dict(summary_stats), "title_prefix": title_prefix
         }
-    # --- End of moved logic ---
+    
+    conn.close()
 
     return flask.render_template(
         'firewall_detail.html',
-        fw_id=fw_id,
-        ip_address=fw['ip_address'],
-        chart_data=chart_data,
+        fw_id=fw_id, ip_address=fw['ip_address'],
+        full_data=full_data if full_data else None,
         current_timespan=timespan
     )
 
@@ -280,32 +331,6 @@ def delete_firewall(fw_id):
     conn.execute('DELETE FROM firewalls WHERE id = ?', (fw_id,)); conn.commit()
     conn.close()
     return flask.redirect(flask.url_for('manage_firewalls'))
-
-@app.route('/export/pdf')
-def export_pdf():
-    print("Server-side PDF export process started...")
-    timespan = flask.request.args.get('timespan', '1h')
-    try:
-        # This receives the raw PDF data (a bytearray)
-        pdf_data = report_generator.generate_report_pdf(DB_FILE, timespan)
-        
-        if pdf_data is None:
-            return "No data available for the selected period.", 404
-
-        print("PDF generation complete. Sending file to user.")
-        
-        download_name = f"panos-report_{timespan}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
-        
-        # **CHANGE**: We now build a Response object manually.
-        # This is a more direct and reliable way to send binary data.
-        return Response(
-            pdf_data,
-            mimetype='application/pdf',
-            headers={'Content-Disposition': f'attachment;filename={download_name}'}
-        )
-    except Exception as e:
-        print(f"An error occurred during PDF export: {e}")
-        return f"An error occurred: {e}", 500
 
 # --- Background Polling Logic ---
 def get_api_key(args):
