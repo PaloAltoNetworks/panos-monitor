@@ -34,8 +34,8 @@ Before you begin, you must have an administrator account on your devices with AP
 
 Clone the repository to your local machine:
 ```
-git clone <your-repository-url>
-cd <your-repository-folder>
+git clone https://github.com/PaloAltoNetworks/panos-monitor
+cd panos-monitor
 ```
 
 ### 3. Create a Python Virtual Environment
