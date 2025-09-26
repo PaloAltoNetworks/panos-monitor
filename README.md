@@ -9,6 +9,7 @@ A simple, web-based monitoring dashboard for Palo Alto Networks firewalls. This 
 
 * **Web-Based Dashboard:** A clean, centralized dashboard to view the latest status and aggregate throughput for all monitored firewalls.
 * **Historical Graphing:** Click on any firewall to view detailed historical graphs of its session count and throughput over time.
+* **CPU & Dataplane Monitoring:** Tracks the 1-minute load average for both the management plane (CPU) and data plane (DP) processors.
 * **Panorama Integration:** Import all connected firewalls directly from your Panorama instance with a single click.
 * **Multi-Firewall Support:** Monitor dozens of firewalls. Firewalls can be added individually or bulk-imported from a text file.
 * **Persistent Storage:** Uses a local SQLite database (`monitoring.db`) to store all configuration and historical statistics.
@@ -107,5 +108,3 @@ Navigate to the **Manage Firewalls** page. You have three options:
 * **Data Storage:** A single-file **SQLite** database (`monitoring.db`) stores all data. Application settings, including encrypted API credentials for both firewalls and Panorama, are stored in a `settings` table.
 * **Security:** The password encryption key is stored in the `secret.key` file. **Important:** Do not delete this file, as it is required to decrypt the stored credentials. If you back up the database, back up this key file as well.
 * **PDF Generation:** The PDF reports are generated entirely on the server using **Matplotlib** to create the chart images and **FPDF2** to assemble the document.
-
----
