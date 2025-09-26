@@ -4,7 +4,6 @@
     <a href="{{ url_for('index') }}">&larr; Back to Dashboard</a>
     <h2>Historical Stats for {{ ip_address }}</h2>
     
-    {# NEW: Timeframe selection links #}
     <nav>
       <ul>
         <li><strong>Timeframe:</strong></li>
@@ -15,22 +14,29 @@
       </ul>
     </nav>
 
-    {# Check if chart_data exists #}
+    {# **FIX**: This 'if' block checks if chart_data exists before trying to use it. #}
     {% if chart_data %}
         <div class="grid">
             <article>
-                <h4>{{ chart_data.title_prefix }} Throughput (Mbps)</h4>
-                <canvas id="throughputChart"></canvas>
+                <h4>{{ chart_data.title_prefix }} Input (Mbps)</h4>
+                <canvas id="inputChart"></canvas>
             </article>
+            <article>
+                <h4>{{ chart_data.title_prefix }} Output (Mbps)</h4>
+                <canvas id="outputChart"></canvas>
+            </article>
+        </div>
+        <div class="grid">
             <article>
                 <h4>{{ chart_data.title_prefix }} Active Sessions</h4>
                 <canvas id="sessionChart"></canvas>
             </article>
+            <article>
+                <h4>{{ chart_data.title_prefix }} CPU & DP Load (%)</h4>
+                <canvas id="loadChart"></canvas>
+            </article>
         </div>
-        <article>
-            <h4>{{ chart_data.title_prefix }} CPU (Peak Core) & Dataplane (Average) Load (%)</h4>
-            <canvas id="loadChart"></canvas>
-        </article>
+    {# **FIX**: The 'else' block displays a message if no data is found. #}
     {% else %}
         <article>
             <p>No historical data available for this firewall in the selected timeframe.</p>
@@ -40,7 +46,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <script>
-    // Only run chart script if data exists
+    {# **FIX**: The script content is now also safely inside the 'if' block. #}
     {% if chart_data %}
         const labels = {{ chart_data.labels | tojson }};
         const inputData = {{ chart_data.input_data_mbps | tojson }};
@@ -49,12 +55,19 @@
         const cpuData = {{ chart_data.cpu_data | tojson }};
         const dataplaneData = {{ chart_data.dataplane_data | tojson }};
 
-        const throughputCtx = document.getElementById('throughputChart');
-        if (throughputCtx) { new Chart(throughputCtx, { type: 'line', data: { labels: labels, datasets: [ { label: 'Input (Mbps)', data: inputData, borderColor: 'rgb(54, 162, 235)', fill: false, tension: 0.1 }, { label: 'Output (Mbps)', data: outputData, borderColor: 'rgb(255, 99, 132)', fill: false, tension: 0.1 } ] }, options: { scales: { y: { beginAtZero: true } } } }); }
+        // --- Input Chart ---
+        const inputCtx = document.getElementById('inputChart');
+        if (inputCtx) { new Chart(inputCtx, { type: 'line', data: { labels: labels, datasets: [ { label: 'Input (Mbps)', data: inputData, borderColor: 'rgb(54, 162, 235)', backgroundColor: 'rgba(54, 162, 235, 0.1)', fill: true, tension: 0.1 } ] }, options: { scales: { y: { beginAtZero: true } } } }); }
 
+        // --- Output Chart ---
+        const outputCtx = document.getElementById('outputChart');
+        if (outputCtx) { new Chart(outputCtx, { type: 'line', data: { labels: labels, datasets: [ { label: 'Output (Mbps)', data: outputData, borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.1)', fill: true, tension: 0.1 } ] }, options: { scales: { y: { beginAtZero: true } } } }); }
+
+        // --- Session Chart ---
         const sessionCtx = document.getElementById('sessionChart');
         if (sessionCtx) { new Chart(sessionCtx, { type: 'line', data: { labels: labels, datasets: [{ label: 'Active Sessions', data: sessionData, borderColor: 'rgb(75, 192, 192)', fill: false, tension: 0.1 }] }, options: { scales: { y: { beginAtZero: true } } } }); }
         
+        // --- Load Chart ---
         const loadCtx = document.getElementById('loadChart');
         if (loadCtx) { new Chart(loadCtx, { type: 'line', data: { labels: labels, datasets: [ { label: 'CPU Load (Peak Core %)', data: cpuData, borderColor: 'rgb(255, 159, 64)', fill: false, tension: 0.1 }, { label: 'Dataplane Load (Avg %)', data: dataplaneData, borderColor: 'rgb(153, 102, 255)', fill: false, tension: 0.1 } ] }, options: { scales: { y: { beginAtZero: true, max: 100 } } } }); }
     {% endif %}
