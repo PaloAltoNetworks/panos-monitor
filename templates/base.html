@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PAN-OS Monitor</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <style>
+        body { padding: 2rem; }
+        nav { margin-bottom: 2rem; }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+        <nav>
+            <ul>
+                <li><strong>PAN-OS Monitor</strong></li>
+            </ul>
+            <ul>
+                <li><a href="{{ url_for('index') }}">Dashboard</a></li>
+                <li><a href="{{ url_for('manage_firewalls') }}">Manage Firewalls</a></li>
+                <li><a href="{{ url_for('settings') }}" role="button" class="secondary">Settings</a></li>
+            </ul>
+        </nav>
+        
+        {% block content %}{% endblock %}
+        
+    </main>
+  </body>
+</html>

@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <a href="{{ url_for('index') }}">&larr; Back to Dashboard</a>
+    <h2>Historical Stats for {{ ip_address }}</h2>
+    
+    {# NEW: Timeframe selection links #}
+    <nav>
+      <ul>
+        <li><strong>Timeframe:</strong></li>
+        <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='1h') }}" role="button" class="{{ 'primary' if current_timespan == '1h' else 'secondary outline' }}">Last Hour</a></li>
+        <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='6h') }}" role="button" class="{{ 'primary' if current_timespan == '6h' else 'secondary outline' }}">Last 6 Hours</a></li>
+        <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='24h') }}" role="button" class="{{ 'primary' if current_timespan == '24h' else 'secondary outline' }}">Last 24 Hours</a></li>
+        <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='7d') }}" role="button" class="{{ 'primary' if current_timespan == '7d' else 'secondary outline' }}">Last 7 Days</a></li>
+      </ul>
+    </nav>
+
+    {# Check if chart_data exists #}
+    {% if chart_data %}
+        <div class="grid">
+            <article>
+                <h4>{{ chart_data.title_prefix }} Throughput (Mbps)</h4>
+                <canvas id="throughputChart"></canvas>
+            </article>
+            <article>
+                <h4>{{ chart_data.title_prefix }} Active Sessions</h4>
+                <canvas id="sessionChart"></canvas>
+            </article>
+        </div>
+        <article>
+            <h4>{{ chart_data.title_prefix }} CPU (Peak Core) & Dataplane (Average) Load (%)</h4>
+            <canvas id="loadChart"></canvas>
+        </article>
+    {% else %}
+        <article>
+            <p>No historical data available for this firewall in the selected timeframe.</p>
+        </article>
+    {% endif %}
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script>
+    // Only run chart script if data exists
+    {% if chart_data %}
+        const labels = {{ chart_data.labels | tojson }};
+        const inputData = {{ chart_data.input_data_mbps | tojson }};
+        const outputData = {{ chart_data.output_data_mbps | tojson }};
+        const sessionData = {{ chart_data.session_data | tojson }};
+        const cpuData = {{ chart_data.cpu_data | tojson }};
+        const dataplaneData = {{ chart_data.dataplane_data | tojson }};
+
+        const throughputCtx = document.getElementById('throughputChart');
+        if (throughputCtx) { new Chart(throughputCtx, { type: 'line', data: { labels: labels, datasets: [ { label: 'Input (Mbps)', data: inputData, borderColor: 'rgb(54, 162, 235)', fill: false, tension: 0.1 }, { label: 'Output (Mbps)', data: outputData, borderColor: 'rgb(255, 99, 132)', fill: false, tension: 0.1 } ] }, options: { scales: { y: { beginAtZero: true } } } }); }
+
+        const sessionCtx = document.getElementById('sessionChart');
+        if (sessionCtx) { new Chart(sessionCtx, { type: 'line', data: { labels: labels, datasets: [{ label: 'Active Sessions', data: sessionData, borderColor: 'rgb(75, 192, 192)', fill: false, tension: 0.1 }] }, options: { scales: { y: { beginAtZero: true } } } }); }
+        
+        const loadCtx = document.getElementById('loadChart');
+        if (loadCtx) { new Chart(loadCtx, { type: 'line', data: { labels: labels, datasets: [ { label: 'CPU Load (Peak Core %)', data: cpuData, borderColor: 'rgb(255, 159, 64)', fill: false, tension: 0.1 }, { label: 'Dataplane Load (Avg %)', data: dataplaneData, borderColor: 'rgb(153, 102, 255)', fill: false, tension: 0.1 } ] }, options: { scales: { y: { beginAtZero: true, max: 100 } } } }); }
+    {% endif %}
+    </script>
+{% endblock %}

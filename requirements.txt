@@ -1,0 +1,5 @@
+Flask>=2.0
+requests>=2.25
+cryptography>=3.0
+matplotlib>=3.5
+fpdf2>=2.7

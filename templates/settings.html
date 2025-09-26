@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <article>
+        <h2>Configuration Settings</h2>
+        <p>Set the global API credentials and polling interval here.</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <p style="color: green;">{{ message }}</p>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form method="post">
+            <fieldset>
+                <legend>Firewall Polling Settings</legend>
+                <div class="grid">
+                    <label for="username">
+                        API Username
+                        <input type="text" id="username" name="username" placeholder="Username for Firewalls" value="{{ settings.get('FW_USER', '') }}" required>
+                    </label>
+                    <label for="password">
+                        API Password
+                        <input type="password" id="password" name="password" placeholder="Leave blank to keep current">
+                    </label>
+                </div>
+                <label for="interval">Polling Interval (seconds)</label>
+                <input type="number" id="interval" name="interval" value="{{ settings.get('POLL_INTERVAL', 30) }}" required>
+            </fieldset>
+
+            <hr>
+
+            {# ## This is the new section for Panorama ## #}
+            <fieldset>
+                <legend>Panorama Import Settings</legend>
+                <label for="pano_host">Panorama Hostname or IP</label>
+                <input type="text" id="pano_host" name="pano_host" placeholder="e.g., panorama.example.com" value="{{ settings.get('PANORAMA_HOST', '') }}">
+                <div class="grid">
+                    <label for="pano_user">
+                        Panorama Username
+                        <input type="text" id="pano_user" name="pano_user" value="{{ settings.get('PANORAMA_USER', '') }}">
+                    </label>
+                    <label for="pano_pass">
+                        Panorama Password
+                        <input type="password" id="pano_pass" name="pano_pass" placeholder="Leave blank to keep current">
+                    </label>
+                </div>
+            </fieldset>
+
+            <button type="submit">Save Settings</button>
+        </form>
+    </article>
+{% endblock %}

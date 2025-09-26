@@ -1,0 +1,116 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+{# **CHANGE**: Updated CSS to be more specific and forceful #}
+<style>
+  .hover-dropdown {
+    position: relative;
+    display: inline-block;
+  }
+  .hover-dropdown ul {
+    display: none;
+    position: absolute;
+    z-index: 100;
+    width: max-content;
+    min-width: 100%;
+    background-color: var(--card-background-color);
+    border: var(--card-border);
+    box-shadow: var(--card-box-shadow);
+    margin-top: 0;
+    padding: 0.5rem 0; /* Vertical padding */
+    margin-left: 0;
+  }
+  .hover-dropdown:hover ul {
+    display: block;
+  }
+  /* This new, more specific rule will override the default list style */
+  .hover-dropdown li {
+    list-style-type: none !important;
+    padding: 0 1rem; /* Add horizontal padding to align text */
+  }
+</style>
+
+<h2>Manage Firewalls</h2>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <p style="color: green;">{{ message }}</p>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="hover-dropdown" style="margin-bottom: 1.5rem;">
+    <a role="button" href="#">Export PDF Report</a>
+    <ul>
+        <li><small>High-Detail (Raw Data)</small></li>
+        <li><a href="{{ url_for('export_pdf', timespan='5m') }}">Last 5 Minutes</a></li>
+        <li><a href="{{ url_for('export_pdf', timespan='1h') }}">Last Hour</a></li>
+        <li><a href="{{ url_for('export_pdf', timespan='6h') }}">Last 6 Hours</a></li>
+        <li><hr></li>
+        <li><small>Summarized (Averages)</small></li>
+        <li><a href="{{ url_for('export_pdf', timespan='24h') }}">Last 24 Hours (Hourly)</a></li>
+        <li><a href="{{ url_for('export_pdf', timespan='7d') }}">Last 7 Days (Daily)</a></li>
+        <li><a href="{{ url_for('export_pdf', timespan='30d') }}">Last 30 Days (Daily)</a></li>
+    </ul>
+</div>
+
+
+<div class="grid">
+    <article>
+        <h4>Import from Panorama</h4>
+        <p>Imports connected firewalls from the Panorama configured in Settings.</p>
+        <form action="{{ url_for('import_from_panorama') }}" method="post">
+            <button type="submit">Import from Panorama</button>
+        </form>
+    </article>
+    <article>
+        <h4>Add Single Firewall</h4>
+        <form action="{{ url_for('add_firewall') }}" method="post">
+            <label for="ip_address">IP Address</label>
+            <input type="text" id="ip_address" name="ip_address" placeholder="e.g., 192.168.1.1" required>
+            <button type="submit">Add Firewall</button>
+        </form>
+    </article>
+    <article>
+        <h4>Import from File</h4>
+        <form action="{{ url_for('import_firewalls') }}" method="post" enctype="multipart/form-data">
+            <label for="file">Firewall List (.txt)</label>
+            <small>One IP address per line.</small>
+            <input type="file" id="file" name="file" accept=".txt" required>
+            <button type="submit">Import</button>
+        </form>
+    </article>
+</div>
+
+<hr>
+
+<h3>Currently Monitored Firewalls</h3>
+<figure>
+    <table>
+        <thead>
+            <tr>
+                <th>IP Address</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for fw in firewalls %}
+            <tr>
+                <td>{{ fw.ip_address }}</td>
+                <td>
+                    <form action="{{ url_for('delete_firewall', fw_id=fw.id) }}" method="post" onsubmit="return confirm('Are you sure you want to delete this firewall and all its stats?');">
+                        <button type="submit" class="secondary outline">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="2">No firewalls have been added yet.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</figure>
+{% endblock %}
