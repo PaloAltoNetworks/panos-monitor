@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <article>
+        <h2>Upgrade Advisor</h2>
+        <p>This tool analyzes the peak performance of your firewalls over a selected period and provides an upgrade recommendation if usage exceeds 80% of the model's capacity.</p>
+        
+        <form method="post">
+            <label for="timespan">Select Analysis Timeframe:</label>
+            <select id="timespan" name="timespan">
+                <option value="7d" {% if selected_timespan == '7d' %}selected{% endif %}>Last 7 Days</option>
+                <option value="30d" {% if selected_timespan == '30d' %}selected{% endif %}>Last 30 Days</option>
+            </select>
+            <button type="submit">Analyze</button>
+        </form>
+    </article>
+
+    {% if results %}
+    <figure>
+        <table role="grid">
+            <thead>
+                <tr>
+                    <th>Firewall</th>
+                    <th>Model</th>
+                    <th>Peak Sessions / Max</th>
+                    <th>Session Util.</th>
+                    <th>Peak Throughput / Max (Mbps)</th>
+                    <th>Throughput Util.</th>
+                    <th>Recommendation</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for res in results %}
+                <tr>
+                    <td>{{ res.ip_address }}</td>
+                    <td>{{ res.model or 'Unknown' }}</td>
+                    
+                    {# **CHANGE**: Added an 'if' check to handle non-numeric values like 'N/A' #}
+                    <td>
+                        {{ "{:,.0f}".format(res.peak_sessions) }} / 
+                        {% if res.max_sessions is number %}
+                            {{ "{:,.0f}".format(res.max_sessions) }}
+                        {% else %}
+                            {{ res.max_sessions }}
+                        {% endif %}
+                    </td>
+
+                    <td {% if res.session_util >= 80 %}style="color:red; font-weight:bold;"{% endif %}>
+                        {{ "%.1f"|format(res.session_util) }}%
+                    </td>
+
+                    {# **CHANGE**: Added an 'if' check to handle non-numeric values like 'N/A' #}
+                    <td>
+                        {{ "{:,.0f}".format(res.peak_throughput) }} /
+                        {% if res.max_throughput is number %}
+                            {{ "{:,.0f}".format(res.max_throughput) }}
+                        {% else %}
+                            {{ res.max_throughput }}
+                        {% endif %}
+                    </td>
+
+                    <td {% if res.throughput_util >= 80 %}style="color:red; font-weight:bold;"{% endif %}>
+                        {{ "%.1f"|format(res.throughput_util) }}%
+                    </td>
+                    <td {% if res.recommendation != 'OK' %}style="color:orange; font-weight:bold;"{% endif %}>
+                        {{ res.recommendation }}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </figure>
+    {% endif %}
+
+{% endblock %}

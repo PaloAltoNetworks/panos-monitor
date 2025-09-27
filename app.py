@@ -11,6 +11,7 @@ import multiprocessing
 import threading
 from cryptography.fernet import Fernet
 import report_generator
+from pa_models import SPECS, SPECS_MAP
 
 # --- Configuration ---
 DB_FILE = "monitoring.db"
@@ -49,24 +50,17 @@ def init_db():
     conn = get_db_connection()
     conn.execute('PRAGMA foreign_keys = ON;')
     conn.execute('''CREATE TABLE IF NOT EXISTS firewalls (id INTEGER PRIMARY KEY AUTOINCREMENT, ip_address TEXT UNIQUE NOT NULL, last_checked TIMESTAMP, status TEXT DEFAULT 'unknown');''')
-    
-    # **CHANGE**: The stats table is now created fresh with the correct data types.
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS stats (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, 
-            firewall_id INTEGER NOT NULL, 
-            timestamp TIMESTAMP NOT NULL, 
-            active_sessions INTEGER, 
-            total_input_bps REAL, 
-            total_output_bps REAL, 
-            cpu_load REAL, 
-            dataplane_load REAL, 
-            FOREIGN KEY (firewall_id) REFERENCES firewalls (id) ON DELETE CASCADE
-        );
-    ''')
-    
+    conn.execute('''CREATE TABLE IF NOT EXISTS stats (id INTEGER PRIMARY KEY AUTOINCREMENT, firewall_id INTEGER NOT NULL, timestamp TIMESTAMP NOT NULL, active_sessions INTEGER, total_input_bps REAL, total_output_bps REAL, cpu_load REAL, dataplane_load REAL, FOREIGN KEY (firewall_id) REFERENCES firewalls (id) ON DELETE CASCADE);''')
     conn.execute('''CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);''')
     conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('POLL_INTERVAL', '30')")
+    
+    # ** NEW: Add 'model' column to the firewalls table if it doesn't exist **
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(firewalls)")
+    columns = [row['name'] for row in cursor.fetchall()]
+    if 'model' not in columns:
+        conn.execute("ALTER TABLE firewalls ADD COLUMN model TEXT;")
+
     conn.commit()
     conn.close()
 
@@ -96,6 +90,57 @@ def index():
     stats = conn.execute(query).fetchall()
     conn.close()
     return flask.render_template('index.html', stats=stats, polling_interval=polling_interval)
+
+@app.route('/advisor', methods=['GET', 'POST'])
+def advisor():
+    results = None
+    selected_timespan = '7d'
+    if flask.request.method == 'POST':
+        selected_timespan = flask.request.form['timespan']
+        time_modifier = {'7d': '-7 days', '30d': '-30 days'}.get(selected_timespan)
+        
+        conn = get_db_connection()
+        firewalls = conn.execute('SELECT id, ip_address, model FROM firewalls').fetchall()
+        
+        results = []
+        for fw in firewalls:
+            res = {'ip_address': fw['ip_address'], 'model': fw['model']}
+            
+            # Get peak stats for the firewall
+            query = f"SELECT MAX(active_sessions) as max_s, MAX(total_input_bps + total_output_bps) as max_tp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}');"
+            peak_stats = conn.execute(query, (fw['id'],)).fetchone()
+
+            peak_sessions = peak_stats['max_s'] or 0
+            peak_throughput_mbps = (peak_stats['max_tp'] or 0) / 1000000
+            
+            res['peak_sessions'] = peak_sessions
+            res['peak_throughput'] = peak_throughput_mbps
+
+            # Perform analysis if model is known
+            if fw['model'] and fw['model'] in SPECS_MAP:
+                spec = SPECS_MAP[fw['model']]
+                res['max_sessions'] = spec['max_sessions']
+                res['max_throughput'] = spec['max_throughput_mbps']
+                
+                res['session_util'] = (peak_sessions / spec['max_sessions']) * 100 if spec['max_sessions'] > 0 else 0
+                res['throughput_util'] = (peak_throughput_mbps / spec['max_throughput_mbps']) * 100 if spec['max_throughput_mbps'] > 0 else 0
+
+                res['recommendation'] = 'OK'
+                if res['session_util'] >= 80 or res['throughput_util'] >= 80:
+                    # Find current model index to recommend the next one up
+                    current_index = next((i for i, item in enumerate(SPECS) if item["model"] == fw['model']), -1)
+                    if 0 <= current_index < len(SPECS) - 1:
+                        res['recommendation'] = f"Upgrade to {SPECS[current_index + 1]['model']}"
+                    else:
+                        res['recommendation'] = "Upgrade Recommended (Highest Model)"
+            else:
+                # Handle unknown models
+                res.update({'max_sessions': 'N/A', 'max_throughput': 'N/A', 'session_util': 0, 'throughput_util': 0, 'recommendation': 'Unknown Model'})
+            
+            results.append(res)
+        conn.close()
+
+    return flask.render_template('advisor.html', results=results, selected_timespan=selected_timespan)
 
 @app.route('/settings', methods=['GET', 'POST'])
 def settings():
@@ -426,52 +471,74 @@ def background_worker_loop():
         fw_user = settings.get('FW_USER')
         encrypted_pass = settings.get('FW_PASSWORD')
         poll_interval = int(settings.get('POLL_INTERVAL', 30))
+
         if not fw_user or not encrypted_pass:
-            print("Worker: Credentials not set in database. Waiting...")
+            print("Worker: Credentials not set. Waiting...")
             conn.close()
             time.sleep(poll_interval)
             continue
+            
         fw_password = decrypt_message(encrypted_pass, key)
-        firewalls = conn.execute('SELECT id, ip_address FROM firewalls').fetchall()
-        conn.close()
+        firewalls = conn.execute('SELECT id, ip_address, model FROM firewalls').fetchall()
         hosts_to_poll = [fw['ip_address'] for fw in firewalls]
+
         if not hosts_to_poll:
-            print("Worker: No firewalls in DB to poll. Waiting...")
+            print("Worker: No firewalls in DB. Waiting...")
+            conn.close()
             time.sleep(poll_interval)
             continue
+
         init_tasks = [(host, fw_user, fw_password) for host in hosts_to_poll]
         api_keys = {}
         try:
             with multiprocessing.Pool(processes=len(init_tasks)) as pool:
                 for res in pool.map(get_api_key, init_tasks):
-                    if res['status'] == 'success': api_keys[res['host']] = res['api_key']
+                    if res['status'] == 'success':
+                        api_keys[res['host']] = res['api_key']
+                        # ** NEW: Check if model needs to be discovered **
+                        fw_entry = next((fw for fw in firewalls if fw['ip_address'] == res['host']), None)
+                        if fw_entry and not fw_entry['model']:
+                            try:
+                                print(f"Discovering model for {res['host']}...")
+                                sys_info_xml = requests.get(f"https://{res['host']}/api/?type=op&cmd=<show><system><info/></system></show>&key={res['api_key']}", verify=False, timeout=10).content
+                                model = ET.fromstring(sys_info_xml).findtext('.//model')
+                                if model:
+                                    conn.execute('UPDATE firewalls SET model = ? WHERE id = ?', (model, fw_entry['id']))
+                                    conn.commit()
+                                    print(f"Discovered and saved model {model} for {res['host']}.")
+                            except Exception as e:
+                                print(f"Could not discover model for {res['host']}: {e}")
         except Exception as e:
             print(f"Worker Error during API key generation: {e}")
+            conn.close()
             time.sleep(poll_interval)
             continue
+        
+        conn.close() # Close connection after model updates
+
         if not api_keys:
-            print("Worker: Could not get API key for any firewalls. Check credentials in Settings. Waiting...")
+            print("Worker: Could not get API key for any firewalls. Waiting...")
             time.sleep(poll_interval)
             continue
+            
         poll_tasks = [(host, key, firewall_states.get(host, {})) for host, key in api_keys.items()]
         with multiprocessing.Pool(processes=len(poll_tasks)) as pool:
             results = pool.map(poll_single_firewall, poll_tasks)
+        
         conn = get_db_connection()
         timestamp_now = datetime.now()
         for res in results:
             host = res['host']
             firewall_id = next((fw['id'] for fw in firewalls if fw['ip_address'] == host), None)
             if not firewall_id: continue
+            
             conn.execute('UPDATE firewalls SET last_checked = ?, status = ? WHERE id = ?', (timestamp_now, res['status'], firewall_id))
             if res['status'] == 'success':
                 firewall_states[host] = res['new_state']
                 s = res['data']
                 if s['total_input_bps'] > 0 or s['total_output_bps'] > 0 or s['active_sessions'] > 0:
-                    # ** CHANGE: Add cpu_load and dataplane_load to the INSERT statement **
-                    conn.execute(
-                        'INSERT INTO stats (firewall_id, timestamp, active_sessions, total_input_bps, total_output_bps, cpu_load, dataplane_load) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                        (firewall_id, timestamp_now, s['active_sessions'], s['total_input_bps'], s['total_output_bps'], s['cpu_load'], s['dataplane_load'])
-                    )
+                    conn.execute('INSERT INTO stats (firewall_id, timestamp, active_sessions, total_input_bps, total_output_bps, cpu_load, dataplane_load) VALUES (?, ?, ?, ?, ?, ?, ?)',(firewall_id, timestamp_now, s['active_sessions'], s['total_input_bps'], s['total_output_bps'], s['cpu_load'], s['dataplane_load']))
+        
         conn.commit()
         conn.close()
         print(f"Polling cycle finished. Sleeping for {poll_interval} seconds.")
