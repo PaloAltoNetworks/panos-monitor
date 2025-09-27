@@ -68,12 +68,13 @@ def init_db():
 @app.route('/')
 def index():
     conn = get_db_connection()
+    
     settings_row = conn.execute("SELECT value FROM settings WHERE key = 'POLL_INTERVAL'").fetchone()
     polling_interval = int(settings_row['value']) if settings_row else 30
-    
-    # **CHANGE**: Added cpu_load and dataplane_load to the query
+
+    # **CHANGE**: Added f.model to the SQL query
     query = """
-        SELECT f.id as firewall_id, f.ip_address, s.timestamp,
+        SELECT f.id as firewall_id, f.ip_address, f.model, s.timestamp,
                COALESCE(s.active_sessions, 0) as active_sessions, 
                (COALESCE(s.total_input_bps, 0) / 1000000) as total_input_mbps, 
                (COALESCE(s.total_output_bps, 0) / 1000000) as total_output_mbps,
@@ -89,6 +90,7 @@ def index():
     """
     stats = conn.execute(query).fetchall()
     conn.close()
+    
     return flask.render_template('index.html', stats=stats, polling_interval=polling_interval)
 
 @app.route('/advisor', methods=['GET', 'POST'])

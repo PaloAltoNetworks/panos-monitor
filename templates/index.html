@@ -1,57 +1,67 @@
 {% extends 'base.html' %}
 
 {% block content %}
-    <h2>Firewall Status Dashboard</h2>
+
+{# ** NEW: Custom style block to make the page wider ** #}
+<style>
+  main.container {
+    max-width: 1600px;
+  }
+</style>
+
+<h2>Firewall Status Dashboard</h2>
     
-    <p>Showing the latest statistics from the last successful poll. Auto-refreshes every {{ polling_interval }} seconds.</p>
-    <figure>
-        <table>
-            <thead>
-                <tr>
-                    <th>Firewall IP</th>
-                    <th>Last Check</th>
-                    <th>Active Sessions</th>
-                    {# ** NEW COLUMNS ** #}
-                    <th>CPU Load</th>
-                    <th>DP Load</th>
-                    <th>Input Mbps</th>
-                    <th>Output Mbps</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for stat in stats %}
-                <tr>
-                    <td><strong><a href="{{ url_for('firewall_detail', fw_id=stat.firewall_id) }}">{{ stat.ip_address }}</a></strong></td>
-                    <td>{{ stat.timestamp or 'N/A' }}</td>
-                    <td>{{ stat.active_sessions or 'N/A' }}</td>
-                    <td>{{ stat.cpu_load | round(2) }}%</td>
-                    <td>{{ stat.dataplane_load | round(2) }}%</td>
-                    
-                    <td>{{ (stat.total_input_mbps | default(0)) | round(2) }} Mbps</td>
-                    <td>{{ (stat.total_output_mbps | default(0)) | round(2) }} Mbps</td>
-                    <td>
-                        {% if stat.status == 'success' %}
-                            <span style="color: green;">● Online</span>
-                        {% elif stat.status == 'error' %}
-                            <span style="color: red;">○ Error</span>
-                        {% else %}
-                            <span style="color: gray;">- Pending</span>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% else %}
-                <tr>
-                    <td colspan="8">No statistics found. Add some firewalls and wait for the poller to run.</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </figure>
-    <script>
-        // The refresh timer uses the polling_interval variable (multiplied by 1000 for milliseconds)
-        setTimeout(() => {
-            window.location.reload();
-        }, {{ polling_interval * 1000 }});
-    </script>
+<p>Showing the latest statistics from the last successful poll. Auto-refreshes every {{ polling_interval }} seconds.</p>
+
+<figure>
+    <table>
+        <thead>
+            <tr>
+                <th>Firewall IP</th>
+                <th>Model</th>
+                <th>Last Check</th>
+                <th>Active Sessions</th>
+                <th>CPU Load</th>
+                <th>DP Load</th>
+                <th>Total Input</th>
+                <th>Total Output</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for stat in stats %}
+            <tr>
+                <td><strong><a href="{{ url_for('firewall_detail', fw_id=stat.firewall_id) }}">{{ stat.ip_address }}</a></strong></td>
+                <td>{{ stat.model or 'Discovering...' }}</td>
+                <td>{{ stat.timestamp or 'N/A' }}</td>
+                <td>{{ stat.active_sessions or 'N/A' }}</td>
+                <td>{{ stat.cpu_load | round(2) }}%</td>
+                <td>{{ stat.dataplane_load | round(2) }}%</td>
+                <td>{{ (stat.total_input_mbps | default(0)) | round(2) }} Mbps</td>
+                <td>{{ (stat.total_output_mbps | default(0)) | round(2) }} Mbps</td>
+                <td>
+                    {% if stat.status == 'success' %}
+                        <span style="color: green;">● Online</span>
+                    {% elif stat.status == 'error' %}
+                        <span style="color: red;">○ Error</span>
+                    {% else %}
+                        <span style="color: gray;">- Pending</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="9">No statistics found. Add some firewalls and wait for the poller to run.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</figure>
+    
+<script>
+    setTimeout(() => {
+        window.location.reload();
+    }, {{ polling_interval * 1000 }});
+</script>
+
 {% endblock %}
