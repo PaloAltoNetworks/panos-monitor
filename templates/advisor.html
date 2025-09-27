@@ -64,7 +64,7 @@
                 <td {% if res.throughput_util >= 80 %}style="color:red; font-weight:bold;"{% endif %}>
                     {{ "%.1f"|format(res.throughput_util) }}%
                 </td>
-                <td {% if res.recommendation != 'OK' %}style="color:orange; font-weight:bold;"{% endif %}>
+                <td {% if res.recommendation != 'Within Spec' %}style="color:orange; font-weight:bold;"{% endif %}>
                     {{ res.recommendation }}
                 </td>
             </tr>

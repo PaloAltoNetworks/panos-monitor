@@ -127,7 +127,7 @@ def advisor():
                 res['session_util'] = (peak_sessions / spec['max_sessions']) * 100 if spec['max_sessions'] > 0 else 0
                 res['throughput_util'] = (peak_throughput_mbps / spec['max_throughput_mbps']) * 100 if spec['max_throughput_mbps'] > 0 else 0
 
-                res['recommendation'] = 'OK'
+                res['recommendation'] = 'Within Spec'
                 if res['session_util'] >= 80 or res['throughput_util'] >= 80:
                     # Find current model index to recommend the next one up
                     current_index = next((i for i, item in enumerate(SPECS) if item["model"] == fw['model']), -1)
