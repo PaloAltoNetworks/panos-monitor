@@ -10,6 +10,7 @@ A simple, web-based monitoring dashboard for Palo Alto Networks firewalls. This 
 * **Web-Based Dashboard:** A clean, centralized dashboard to view the latest status, CPU/DP load, and aggregate throughput for all monitored firewalls.
 * **Historical Graphing:** Click on any firewall to view detailed historical graphs for its key performance metrics.
 * **Selectable Timeframes:** View graphs and summary data for various timeframes, from the last 5 minutes to the last 30 days.
+* **Upgrade Advisor:** Analyzes peak usage against known model specifications and recommends a hardware upgrade if utilization exceeds an 80% threshold.
 * **Peak Statistics Summary:** View a table of peak values (max sessions, highest throughput, max CPU/DP load) for each firewall over your selected timeframe.
 * **Flexible Exporting:** Export peak statistics to CSV, or generate PDF reports in multiple formats: Graphs Only, Table Only, or a Combined report.
 * **CPU & Dataplane Monitoring:** Tracks the load average for both the management plane (peak core) and data plane (average of all cores).
@@ -29,14 +30,14 @@ Follow these steps to get the PAN-OS Stats Monitor running.
 
 Before you begin, you must have an administrator account on your devices with API access enabled.
 
-* On your **firewalls**, navigate to **Device > Admin Roles**. Select a role, and in the **XML API** tab, ensure that **Report** and **Operational Requests** are checked. Assign this role to the user account you will use for polling.
+* On your **firewalls**, navigate to **Device > Admin Roles**. Select a role, and in the **XML API** tab, ensure that **Report**, **Operational Requests**, and **Show** (under XML API) are checked. Assign this role to the user account you will use for polling.
 * If using the Panorama import feature, the same API access must be enabled for your **Panorama** user account.
 
 ### 2. Clone the Repository
 
 Clone the repository to your local machine:
 ```
-git clone https://github.com/PaloAltoNetworks/panos-monitor
+git clone <your-repository-url>](https://github.com/PaloAltoNetworks/panos-monitor
 cd panos-monitor
 ```
 
@@ -65,6 +66,10 @@ Install the required Python libraries from the `requirements.txt` file.
 pip install -r requirements.txt
 ```
 
+### 5. Customize Model Specifications
+
+The application includes a `pa_models.py` file with specifications for a sample set of firewall models. For the Upgrade Advisor to be accurate, you should edit this file to include the models and correct performance specifications relevant to your environment.
+
 ---
 ## Usage Guide 🚀
 
@@ -84,7 +89,7 @@ On the first run, the application will automatically create a `monitoring.db` da
 4.  Fill in the **Panorama Import Settings**. These are the credentials for your Panorama instance, used only for importing devices.
 5.  Set the **Polling Interval** and click **Save Settings**.
 
-The background worker will automatically pick up these settings and begin polling on its next cycle.
+The background worker will automatically pick up these settings and begin polling.
 
 ### 3. Adding Firewalls
 
@@ -93,25 +98,30 @@ Navigate to the **Manage Firewalls** page. You have three options:
 2.  **Add Single Firewall:** Enter an IP address manually.
 3.  **Import from File:** Upload a `.txt` file with one IP address per line.
 
+The background poller will automatically detect the model of newly added firewalls on its next cycle.
+
 ### 4. Viewing Data and Graphs
 
-* The **Dashboard** will automatically update at the interval you specified in Settings, showing the latest statistics for all devices.
-* Click on any firewall's **IP address** to navigate to its detail page. Here you can view a summary table of peak statistics, see historical graphs, and use the timeframe selector at the top to switch between recent high-detail data and long-term summarized trends.
+* The **Dashboard** shows the latest statistics for all devices.
+* Click on any firewall's **IP address** to navigate to its detail page. Here you can view a summary table of peak statistics, see historical graphs, and use the timeframe selector to switch between views.
 
-### 5. Exporting Peak Stats to CSV
+### 5. Using the Upgrade Advisor
 
-* On any firewall's detail page, you can export the summary table of peak statistics to a CSV file by clicking the **'Export Table to CSV'** button.
+* Navigate to the **Upgrade Advisor** page from the main menu.
+* Select an analysis timeframe (e.g., Last 30 Days) and click 'Analyze'.
+* The page will display a table showing the peak usage for each firewall compared to its model's capacity and provide an upgrade recommendation if necessary.
 
-### 6. Exporting PDF Reports
+### 6. Exporting Data
 
-* Navigate to the **Manage Firewalls** page and use the **Export PDF Report** dropdown to generate a report. You can choose from three categories of reports (Table Only, Graphs Only, Combined) across multiple timeframes.
+* **CSV:** On any firewall's detail page, export the summary table to a CSV file by clicking the **'Export Table to CSV'** button.
+* **PDF:** Navigate to the **Manage Firewalls** page and use the **Export PDF Report** dropdown. You can choose from three report types (Table Only, Graphs Only, Combined) across multiple timeframes.
 
 ---
 ## How It Works
 
 * **Front-End:** A **Flask** web application serves the HTML pages.
-* **Back-End:** A **background thread** runs a continuous polling loop, which uses a **multiprocessing pool** to poll all devices concurrently.
-* **Data Storage:** A single-file **SQLite** database (`monitoring.db`) stores all data. Application settings, including encrypted API credentials for both firewalls and Panorama, are stored in a `settings` table.
+* **Back-End:** A **background thread** runs a continuous polling loop, using a **multiprocessing pool** to poll devices concurrently.
+* **Data Storage:** A single-file **SQLite** database (`monitoring.db`) stores all application data.
+* **Configuration:** Application settings, including encrypted API credentials, are stored in the `settings` table. Hardware specifications for the Upgrade Advisor are stored in the `pa_models.py` file.
 * **Security:** The password encryption key is stored in the `secret.key` file. **Important:** Do not delete this file, as it is required to decrypt the stored credentials. If you back up the database, back up this key file as well.
-* **PDF Generation:** The PDF reports are generated entirely on the server using **Matplotlib** to create the chart images and **FPDF2** to assemble the document.
-
+* **PDF Generation:** PDF reports are generated entirely on the server using **Matplotlib** to create chart images and **FPDF2** to assemble the document.
