@@ -42,32 +42,27 @@ Clone the repository to your local machine:
 git clone https://github.com/PaloAltoNetworks/panos-monitor
 cd panos-monitor
 ```
-
 ### 3. Create a Python Virtual Environment
 
 It's highly recommended to use a virtual environment to manage project dependencies.
 
 * **Create the environment:**
     ```
-    python3 -m venv venv
-    ```
-* **Activate the environment:**
+    python3 -m venv panos-monitor
+    ```* **Activate the environment:**
     * On macOS or Linux:
         ```
-        source venv/bin/activate
+        source panos-monitor/bin/activate
+        ```    * On Windows:
         ```
-    * On Windows:
+        panos-monitor\Scripts\activate
         ```
-        venv\Scripts\activate
-        ```
-
 ### 4. Install Dependencies
 
 Install the required Python libraries from the `requirements.txt` file.
 ```
 pip install -r requirements.txt
 ```
-
 ### 5. Customize Model Specifications
 
 The application includes a `pa_models.py` file with specifications for a sample set of firewall models. For the Upgrade Advisor to be accurate, you should edit this file to include the models and correct performance specifications relevant to your environment.
@@ -86,8 +81,7 @@ To add a custom icon to your browser tabs:
 Launch the Flask web server by running `app.py`:
 ```
 python app.py
-```
-On the first run, the application will automatically create a `monitoring.db` database file and a `secret.key` encryption key file in the project directory.
+```On the first run, the application will automatically create a `monitoring.db` database file and a `secret.key` encryption key file in the project directory.
 
 ### 2. Initial Configuration
 
