@@ -4,10 +4,12 @@ A simple, web-based monitoring dashboard for Palo Alto Networks firewalls. This 
 
 
 
+
+
 ---
 ## Features ✨
 
-* **Web-Based Dashboard:** A clean, centralized dashboard to view the latest status, CPU/DP load, and aggregate throughput for all monitored firewalls.
+* **Web-Based Dashboard:** A clean, centralized dashboard to view the latest status for all monitored firewalls, including their **model**, status, CPU/DP load, and aggregate throughput.
 * **Historical Graphing:** Click on any firewall to view detailed historical graphs for its key performance metrics.
 * **Selectable Timeframes:** View graphs and summary data for various timeframes, from the last 5 minutes to the last 30 days.
 * **Upgrade Advisor:** Analyzes peak usage against known model specifications and recommends a hardware upgrade if utilization exceeds an 80% threshold.
@@ -37,7 +39,7 @@ Before you begin, you must have an administrator account on your devices with AP
 
 Clone the repository to your local machine:
 ```
-git clone <your-repository-url>](https://github.com/PaloAltoNetworks/panos-monitor
+git clone https://github.com/PaloAltoNetworks/panos-monitor
 cd panos-monitor
 ```
 
@@ -69,6 +71,12 @@ pip install -r requirements.txt
 ### 5. Customize Model Specifications
 
 The application includes a `pa_models.py` file with specifications for a sample set of firewall models. For the Upgrade Advisor to be accurate, you should edit this file to include the models and correct performance specifications relevant to your environment.
+
+### 6. (Optional) Add a Favicon
+
+To add a custom icon to your browser tabs:
+1. Create a `static` folder in your main project directory.
+2. Place an icon file named `favicon.ico` inside the `static` folder.
 
 ---
 ## Usage Guide 🚀
@@ -109,7 +117,7 @@ The background poller will automatically detect the model of newly added firewal
 
 * Navigate to the **Upgrade Advisor** page from the main menu.
 * Select an analysis timeframe (e.g., Last 30 Days) and click 'Analyze'.
-* The page will display a table showing the peak usage for each firewall compared to its model's capacity and provide an upgrade recommendation if necessary.
+* The page will display a table showing the peak usage for each firewall compared to its model's capacity and provide a recommendation (e.g., 'Sized Appropriately' or 'Upgrade Recommended').
 
 ### 6. Exporting Data
 
@@ -120,7 +128,7 @@ The background poller will automatically detect the model of newly added firewal
 ## How It Works
 
 * **Front-End:** A **Flask** web application serves the HTML pages.
-* **Back-End:** A **background thread** runs a continuous polling loop, using a **multiprocessing pool** to poll devices concurrently.
+* **Back-End:** A **background thread** runs a continuous polling loop, which uses a **multiprocessing pool** to poll devices concurrently.
 * **Data Storage:** A single-file **SQLite** database (`monitoring.db`) stores all application data.
 * **Configuration:** Application settings, including encrypted API credentials, are stored in the `settings` table. Hardware specifications for the Upgrade Advisor are stored in the `pa_models.py` file.
 * **Security:** The password encryption key is stored in the `secret.key` file. **Important:** Do not delete this file, as it is required to decrypt the stored credentials. If you back up the database, back up this key file as well.
