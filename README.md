@@ -80,8 +80,9 @@ To add a custom icon to your browser tabs:
 
 Launch the Flask web server by running `app.py`:
 ```
-python app.py
-```On the first run, the application will automatically create a `monitoring.db` database file and a `secret.key` encryption key file in the project directory.
+python3 app.py
+```
+On the first run, the application will automatically create a `monitoring.db` database file and a `secret.key` encryption key file in the project directory.
 
 ### 2. Initial Configuration
 
