@@ -11,6 +11,7 @@ import multiprocessing
 import threading
 from cryptography.fernet import Fernet
 import report_generator
+import logging
 from pa_models import SPECS, SPECS_MAP
 
 # --- Configuration ---
@@ -234,21 +235,25 @@ def firewall_detail(fw_id):
         conn.close()
         return "Firewall not found", 404
 
-    # --- Get Chart and Summary Data ---
+    # --- Logic to fetch data ---
     full_data = {}
     is_summarized = timespan in ['24h', '7d', '30d']
     
     if is_summarized:
-        if timespan == '7d': time_modifier, date_format_sql, date_format_py, title_prefix = '-7 days', '%Y-%m-%d', '%Y-%m-%d', "Daily Average"
-        elif timespan == '30d': time_modifier, date_format_sql, date_format_py, title_prefix = '-30 days', '%Y-%m-%d', '%Y-%m-%d', "Daily Average"
-        else: time_modifier, date_format_sql, date_format_py, title_prefix = '-24 hours', '%Y-%m-%d %H:00', '%Y-%m-%d %H:%M', "Hourly Average"
-        query_charts = f"SELECT strftime('{date_format_sql}', timestamp) as period, AVG(active_sessions) as sessions, AVG(total_input_bps) as input_bps, AVG(total_output_bps) as output_bps, AVG(cpu_load) as cpu, AVG(dataplane_load) as dp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}') GROUP BY period ORDER BY period ASC;"
+        if timespan == '7d': time_modifier, date_format_sql, date_format_py, title_prefix = '-7 days', '%Y-%m-%d', '%Y-%m-%d', "Daily Peak"
+        elif timespan == '30d': time_modifier, date_format_sql, date_format_py, title_prefix = '-30 days', '%Y-%m-%d', '%Y-%m-%d', "Daily Peak"
+        else: # 24h
+            time_modifier, date_format_sql, date_format_py, title_prefix = '-24 hours', '%Y-%m-%d %H:00', '%Y-%m-%d %H:%M', "Hourly Peak"
+        query_charts = f"SELECT strftime('{date_format_sql}', timestamp) as period, MAX(active_sessions) as sessions, MAX(total_input_bps) as input_bps, MAX(total_output_bps) as output_bps, MAX(cpu_load) as cpu, MAX(dataplane_load) as dp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}') GROUP BY period ORDER BY period ASC;"
     else: # Raw data
         if timespan == '1h': time_modifier, title_prefix = '-1 hour', "Raw Data"
         elif timespan == '6h': time_modifier, title_prefix = '-6 hours', "Raw Data"
-        else: time_modifier = '-5 minutes', "Raw Data"
+        else: 
+            # **FIX**: Corrected the variable assignment for the 5-minute case
+            time_modifier = '-5 minutes'
+            title_prefix = "Raw Data"
         query_charts = f"SELECT timestamp, active_sessions as sessions, total_input_bps as input_bps, total_output_bps as output_bps, cpu_load as cpu, dataplane_load as dp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}') ORDER BY timestamp ASC;"
-
+    
     stats_charts = conn.execute(query_charts, (fw_id,)).fetchall()
 
     if stats_charts:
@@ -543,7 +548,7 @@ def background_worker_loop():
         
         conn.commit()
         conn.close()
-        print(f"Polling cycle finished. Sleeping for {poll_interval} seconds.")
+        # print(f"Polling cycle finished. Sleeping for {poll_interval} seconds.")
         time.sleep(poll_interval)
 
 def get_firewall_stats_for_timespan(conn, fw_id, timespan):
@@ -614,4 +619,6 @@ if __name__ == '__main__':
     init_db()
     worker_thread = threading.Thread(target=background_worker_loop, daemon=True)
     worker_thread.start()
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)    
     app.run(host='0.0.0.0', port=5000, debug=False)

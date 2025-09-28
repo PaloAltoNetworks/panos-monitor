@@ -45,6 +45,8 @@
     <a role="button" href="#">Export PDF Report</a>
     <ul>
         <li><small>Table Only</small></li>
+        {# ** NEW: Added the 5-minute option ** #}
+        <li><a href="{{ url_for('export_pdf', timespan='5m', type='table_only') }}">Last 5 Minutes</a></li>
         <li><a href="{{ url_for('export_pdf', timespan='1h', type='table_only') }}">Last Hour</a></li>
         <li><a href="{{ url_for('export_pdf', timespan='6h', type='table_only') }}">Last 6 Hours</a></li>
         <li><a href="{{ url_for('export_pdf', timespan='24h', type='table_only') }}">Last 24 Hours</a></li>
@@ -52,6 +54,8 @@
         <li><a href="{{ url_for('export_pdf', timespan='30d', type='table_only') }}">Last 30 Days</a></li>
         <li><hr></li>
         <li><small>Graphs Only</small></li>
+        {# ** NEW: Added the 5-minute option ** #}
+        <li><a href="{{ url_for('export_pdf', timespan='5m', type='graphs_only') }}">Last 5 Minutes</a></li>
         <li><a href="{{ url_for('export_pdf', timespan='1h', type='graphs_only') }}">Last Hour</a></li>
         <li><a href="{{ url_for('export_pdf', timespan='6h', type='graphs_only') }}">Last 6 Hours</a></li>
         <li><a href="{{ url_for('export_pdf', timespan='24h', type='graphs_only') }}">Last 24 Hours</a></li>
@@ -59,6 +63,8 @@
         <li><a href="{{ url_for('export_pdf', timespan='30d', type='graphs_only') }}">Last 30 Days</a></li>
         <li><hr></li>
         <li><small>Combined (Table + Graphs)</small></li>
+        {# ** NEW: Added the 5-minute option ** #}
+        <li><a href="{{ url_for('export_pdf', timespan='5m', type='combined') }}">Last 5 Minutes</a></li>
         <li><a href="{{ url_for('export_pdf', timespan='1h', type='combined') }}">Last Hour</a></li>
         <li><a href="{{ url_for('export_pdf', timespan='6h', type='combined') }}">Last 6 Hours</a></li>
         <li><a href="{{ url_for('export_pdf', timespan='24h', type='combined') }}">Last 24 Hours</a></li>

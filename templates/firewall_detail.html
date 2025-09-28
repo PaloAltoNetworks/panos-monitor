@@ -3,14 +3,14 @@
     <a href="{{ url_for('index') }}">&larr; Back to Dashboard</a>
     <h2>Historical Stats for {{ ip_address }}</h2>
     <nav>
-      <ul>
         <li><strong>Timeframe:</strong></li>
+        <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='5m') }}" role="button" class="{{ 'primary' if current_timespan == '5m' else 'secondary outline' }}">Last 5 Minutes</a></li>
         <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='1h') }}" role="button" class="{{ 'primary' if current_timespan == '1h' else 'secondary outline' }}">Last Hour</a></li>
         <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='6h') }}" role="button" class="{{ 'primary' if current_timespan == '6h' else 'secondary outline' }}">Last 6 Hours</a></li>
         <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='24h') }}" role="button" class="{{ 'primary' if current_timespan == '24h' else 'secondary outline' }}">Last 24 Hours</a></li>
         <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='7d') }}" role="button" class="{{ 'primary' if current_timespan == '7d' else 'secondary outline' }}">Last 7 Days</a></li>
         <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='30d') }}" role="button" class="{{ 'primary' if current_timespan == '30d' else 'secondary outline' }}">Last 30 Days</a></li>
-    </ul>
+      </ul>
     </nav>
     {% if full_data %}
         <article>
