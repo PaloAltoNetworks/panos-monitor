@@ -53,7 +53,8 @@ It's highly recommended to use a virtual environment to manage project dependenc
     * On macOS or Linux:
         ```
         source panos-monitor/bin/activate
-        ```    * On Windows:
+        ```
+    * On Windows:
         ```
         panos-monitor\Scripts\activate
         ```
