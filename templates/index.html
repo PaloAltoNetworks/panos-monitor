@@ -2,7 +2,6 @@
 
 {% block content %}
 
-{# ** NEW: Custom style block to make the page wider ** #}
 <style>
   main.container {
     max-width: 1600px;
@@ -17,8 +16,11 @@
     <table>
         <thead>
             <tr>
-                <th>Firewall IP</th>
+                <th>Hostname</th>
+                <th>IP Address</th>
                 <th>Model</th>
+                {# ** NEW: Added Generation column header ** #}
+                <th>Generation</th>
                 <th>Last Check</th>
                 <th>Active Sessions</th>
                 <th>CPU Load</th>
@@ -31,8 +33,15 @@
         <tbody>
             {% for stat in stats %}
             <tr>
-                <td><strong><a href="{{ url_for('firewall_detail', fw_id=stat.firewall_id) }}">{{ stat.ip_address }}</a></strong></td>
+                <td>
+                    <strong>
+                        <a href="{{ url_for('firewall_detail', fw_id=stat.firewall_id) }}">{{ stat.hostname or 'N/A' }}</a>
+                    </strong>
+                </td>
+                <td><a href="{{ url_for('firewall_detail', fw_id=stat.firewall_id) }}">{{ stat.ip_address }}</a></td>
                 <td>{{ stat.model or 'Discovering...' }}</td>
+                {# ** NEW: Added Generation data cell ** #}
+                <td>{{ stat.generation }}</td>
                 <td>{{ stat.timestamp or 'N/A' }}</td>
                 <td>{{ stat.active_sessions or 'N/A' }}</td>
                 <td>{{ stat.cpu_load | round(2) }}%</td>
@@ -50,8 +59,8 @@
                 </td>
             </tr>
             {% else %}
-            <tr>
-                <td colspan="9">No statistics found. Add some firewalls and wait for the poller to run.</td>
+            {# **CHANGE**: Updated colspan to account for the new column #}
+            <td colspan="11">No statistics found. Add some firewalls and wait for the poller to run.</td>
             </tr>
             {% endfor %}
         </tbody>

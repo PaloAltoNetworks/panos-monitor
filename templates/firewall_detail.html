@@ -1,8 +1,23 @@
 {% extends 'base.html' %}
+
 {% block content %}
     <a href="{{ url_for('index') }}">&larr; Back to Dashboard</a>
-    <h2>Historical Stats for {{ ip_address }}</h2>
+    <h2>
+        Historical Stats for 
+        {% if hostname %}
+            {{ hostname }} <small>({{ ip_address }})</small>
+        {% else %}
+            {{ ip_address }}
+        {% endif %}
+    </h2>
+
+    {# **CHANGE**: Added 'or 'N/A'' to gracefully handle a missing generation value #}
+    <p style="margin-top: -1rem;">
+        <strong>Model:</strong> {{ model or 'Unknown' }} | <strong>Generation:</strong> {{ generation or 'N/A' }}
+    </p>
+    
     <nav>
+      <ul>
         <li><strong>Timeframe:</strong></li>
         <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='5m') }}" role="button" class="{{ 'primary' if current_timespan == '5m' else 'secondary outline' }}">Last 5 Minutes</a></li>
         <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='1h') }}" role="button" class="{{ 'primary' if current_timespan == '1h' else 'secondary outline' }}">Last Hour</a></li>
@@ -12,6 +27,7 @@
         <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='30d') }}" role="button" class="{{ 'primary' if current_timespan == '30d' else 'secondary outline' }}">Last 30 Days</a></li>
       </ul>
     </nav>
+
     {% if full_data %}
         <article>
             <div class="grid">
@@ -61,7 +77,7 @@
     {% if full_data %}
         const chartData = {{ full_data.chart_data | tojson }};
         const labels = chartData.labels; const inputData = chartData.input_data_mbps; const outputData = chartData.output_data_mbps; const sessionData = chartData.session_data; const cpuData = chartData.cpu_data; const dataplaneData = chartData.dataplane_data;
-        const inputCtx = document.getElementById('inputChart'); if (inputCtx) { new Chart(inputCtx, { type: 'line', data: { labels: labels, datasets: [ { label: 'Input (Mbps)', data: inputData, borderColor: 'rgb(54, 162, 235)', backgroundColor: 'rgba(54, 162, 25, 0.1)', fill: true, tension: 0.1 } ] }, options: { scales: { y: { beginAtZero: true } } } }); }
+        const inputCtx = document.getElementById('inputChart'); if (inputCtx) { new Chart(inputCtx, { type: 'line', data: { labels: labels, datasets: [ { label: 'Input (Mbps)', data: inputData, borderColor: 'rgb(54, 162, 235)', backgroundColor: 'rgba(54, 162, 235, 0.1)', fill: true, tension: 0.1 } ] }, options: { scales: { y: { beginAtZero: true } } } }); }
         const outputCtx = document.getElementById('outputChart'); if (outputCtx) { new Chart(outputCtx, { type: 'line', data: { labels: labels, datasets: [ { label: 'Output (Mbps)', data: outputData, borderColor: 'rgb(255, 99, 132)', backgroundColor: 'rgba(255, 99, 132, 0.1)', fill: true, tension: 0.1 } ] }, options: { scales: { y: { beginAtZero: true } } } }); }
         const sessionCtx = document.getElementById('sessionChart'); if (sessionCtx) { new Chart(sessionCtx, { type: 'line', data: { labels: labels, datasets: [{ label: 'Active Sessions', data: sessionData, borderColor: 'rgb(75, 192, 192)', fill: false, tension: 0.1 }] }, options: { scales: { y: { beginAtZero: true } } } }); }
         const loadCtx = document.getElementById('loadChart'); if (loadCtx) { new Chart(loadCtx, { type: 'line', data: { labels: labels, datasets: [ { label: 'CPU Load (Peak Core %)', data: cpuData, borderColor: 'rgb(255, 159, 64)', fill: false, tension: 0.1 }, { label: 'Dataplane Load (Avg %)', data: dataplaneData, borderColor: 'rgb(153, 102, 255)', fill: false, tension: 0.1 } ] }, options: { scales: { y: { beginAtZero: true, max: 100 } } } }); }

@@ -61,6 +61,8 @@ def init_db():
     columns = [row['name'] for row in cursor.fetchall()]
     if 'model' not in columns:
         conn.execute("ALTER TABLE firewalls ADD COLUMN model TEXT;")
+    if 'hostname' not in columns:
+        conn.execute("ALTER TABLE firewalls ADD COLUMN hostname TEXT;")
 
     conn.commit()
     conn.close()
@@ -73,9 +75,8 @@ def index():
     settings_row = conn.execute("SELECT value FROM settings WHERE key = 'POLL_INTERVAL'").fetchone()
     polling_interval = int(settings_row['value']) if settings_row else 30
 
-    # **CHANGE**: Added f.model to the SQL query
     query = """
-        SELECT f.id as firewall_id, f.ip_address, f.model, s.timestamp,
+        SELECT f.id as firewall_id, f.ip_address, f.hostname, f.model, s.timestamp,
                COALESCE(s.active_sessions, 0) as active_sessions, 
                (COALESCE(s.total_input_bps, 0) / 1000000) as total_input_mbps, 
                (COALESCE(s.total_output_bps, 0) / 1000000) as total_output_mbps,
@@ -89,10 +90,31 @@ def index():
         LEFT JOIN stats s ON s.firewall_id = latest_s.firewall_id AND s.timestamp = latest_s.max_ts
         ORDER BY f.ip_address;
     """
-    stats = conn.execute(query).fetchall()
+    stats_from_db = conn.execute(query).fetchall()
     conn.close()
     
-    return flask.render_template('index.html', stats=stats, polling_interval=polling_interval)
+    # ** NEW: Process the results to add generation and format the timestamp **
+    processed_stats = []
+    for stat in stats_from_db:
+        # Convert the database row to a mutable dictionary
+        stat_dict = dict(stat)
+        
+        # Look up the generation based on the model
+        model = stat_dict.get('model')
+        stat_dict['generation'] = SPECS_MAP.get(model, {}).get('generation', 'N/A')
+        
+        # Reformat the timestamp string to remove fractional seconds
+        if stat_dict['timestamp']:
+            try:
+                dt_obj = datetime.strptime(stat_dict['timestamp'], '%Y-%m-%d %H:%M:%S.%f')
+                stat_dict['timestamp'] = dt_obj.strftime('%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                # If parsing fails for any reason, just pass it through
+                pass
+        
+        processed_stats.append(stat_dict)
+
+    return flask.render_template('index.html', stats=processed_stats, polling_interval=polling_interval)
 
 @app.route('/advisor', methods=['GET', 'POST'])
 def advisor():
@@ -100,7 +122,7 @@ def advisor():
     selected_timespan = '7d'
     if flask.request.method == 'POST':
         selected_timespan = flask.request.form['timespan']
-        time_modifier = {'7d': '-7 days', '30d': '-30 days'}.get(selected_timespan)
+        time_modifier = {'7d': '-7 days', '30d': '-30 days'}.get(selected_timespan, '-7 days')
         
         conn = get_db_connection()
         firewalls = conn.execute('SELECT id, ip_address, model FROM firewalls').fetchall()
@@ -109,7 +131,6 @@ def advisor():
         for fw in firewalls:
             res = {'ip_address': fw['ip_address'], 'model': fw['model']}
             
-            # Get peak stats for the firewall
             query = f"SELECT MAX(active_sessions) as max_s, MAX(total_input_bps + total_output_bps) as max_tp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}');"
             peak_stats = conn.execute(query, (fw['id'],)).fetchone()
 
@@ -119,26 +140,28 @@ def advisor():
             res['peak_sessions'] = peak_sessions
             res['peak_throughput'] = peak_throughput_mbps
 
-            # Perform analysis if model is known
             if fw['model'] and fw['model'] in SPECS_MAP:
                 spec = SPECS_MAP[fw['model']]
+                # ** NEW: Add generation to the results dictionary **
+                res['generation'] = spec.get('generation', 'N/A')
                 res['max_sessions'] = spec['max_sessions']
                 res['max_throughput'] = spec['max_throughput_mbps']
                 
                 res['session_util'] = (peak_sessions / spec['max_sessions']) * 100 if spec['max_sessions'] > 0 else 0
                 res['throughput_util'] = (peak_throughput_mbps / spec['max_throughput_mbps']) * 100 if spec['max_throughput_mbps'] > 0 else 0
 
-                res['recommendation'] = 'Within Spec'
+                res['recommendation'] = 'Sized Appropriately'
                 if res['session_util'] >= 80 or res['throughput_util'] >= 80:
-                    # Find current model index to recommend the next one up
-                    current_index = next((i for i, item in enumerate(SPECS) if item["model"] == fw['model']), -1)
-                    if 0 <= current_index < len(SPECS) - 1:
-                        res['recommendation'] = f"Upgrade to {SPECS[current_index + 1]['model']}"
+                    current_generation = spec.get('generation')
+                    same_gen_models = [s for s in SPECS if s.get('generation') == current_generation]
+                    current_index = next((i for i, item in enumerate(same_gen_models) if item["model"] == fw['model']), -1)
+
+                    if 0 <= current_index < len(same_gen_models) - 1:
+                        res['recommendation'] = f"Upgrade to {same_gen_models[current_index + 1]['model']}"
                     else:
-                        res['recommendation'] = "Upgrade Recommended (Highest Model)"
+                        res['recommendation'] = "Upgrade Recommended (Highest in Series)"
             else:
-                # Handle unknown models
-                res.update({'max_sessions': 'N/A', 'max_throughput': 'N/A', 'session_util': 0, 'throughput_util': 0, 'recommendation': 'Unknown Model'})
+                res.update({'generation': 'N/A', 'max_sessions': 'N/A', 'max_throughput': 'N/A', 'session_util': 0, 'throughput_util': 0, 'recommendation': 'Unknown Model'})
             
             results.append(res)
         conn.close()
@@ -183,7 +206,7 @@ def settings():
 def export_csv(fw_id):
     timespan = flask.request.args.get('timespan', '1h')
     conn = get_db_connection()
-    fw = conn.execute('SELECT ip_address FROM firewalls WHERE id = ?', (fw_id,)).fetchone()
+    fw = conn.execute('SELECT ip_address, hostname FROM firewalls WHERE id = ?', (fw_id,)).fetchone()
     if not fw:
         conn.close()
         return "Firewall not found", 404
@@ -206,7 +229,8 @@ def export_csv(fw_id):
     cw.writerow(['Highest Dataplane Load', f"{summary['max_dp']:.2f}%"])
 
     output = flask.make_response(si.getvalue())
-    download_name = f"{fw['ip_address']}_summary_{timespan}.csv"
+    fw_name = fw['hostname'] or fw['ip_address']
+    download_name = f"{fw_name}_summary_{timespan}.csv"
     output.headers["Content-Disposition"] = f"attachment; filename={download_name}"
     output.headers["Content-type"] = "text/csv"
     return output
@@ -230,56 +254,35 @@ def export_pdf():
 def firewall_detail(fw_id):
     timespan = flask.request.args.get('timespan', '1h')
     conn = get_db_connection()
-    fw = conn.execute('SELECT ip_address FROM firewalls WHERE id = ?', (fw_id,)).fetchone()
+    
+    # Fetch all necessary firewall details, including the new hostname
+    fw = conn.execute('SELECT ip_address, hostname, model FROM firewalls WHERE id = ?', (fw_id,)).fetchone()
+    
     if not fw:
         conn.close()
         return "Firewall not found", 404
 
-    # --- Logic to fetch data ---
-    full_data = {}
-    is_summarized = timespan in ['24h', '7d', '30d']
-    
-    if is_summarized:
-        if timespan == '7d': time_modifier, date_format_sql, date_format_py, title_prefix = '-7 days', '%Y-%m-%d', '%Y-%m-%d', "Daily Peak"
-        elif timespan == '30d': time_modifier, date_format_sql, date_format_py, title_prefix = '-30 days', '%Y-%m-%d', '%Y-%m-%d', "Daily Peak"
-        else: # 24h
-            time_modifier, date_format_sql, date_format_py, title_prefix = '-24 hours', '%Y-%m-%d %H:00', '%Y-%m-%d %H:%M', "Hourly Peak"
-        query_charts = f"SELECT strftime('{date_format_sql}', timestamp) as period, MAX(active_sessions) as sessions, MAX(total_input_bps) as input_bps, MAX(total_output_bps) as output_bps, MAX(cpu_load) as cpu, MAX(dataplane_load) as dp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}') GROUP BY period ORDER BY period ASC;"
-    else: # Raw data
-        if timespan == '1h': time_modifier, title_prefix = '-1 hour', "Raw Data"
-        elif timespan == '6h': time_modifier, title_prefix = '-6 hours', "Raw Data"
-        else: 
-            # **FIX**: Corrected the variable assignment for the 5-minute case
-            time_modifier = '-5 minutes'
-            title_prefix = "Raw Data"
-        query_charts = f"SELECT timestamp, active_sessions as sessions, total_input_bps as input_bps, total_output_bps as output_bps, cpu_load as cpu, dataplane_load as dp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}') ORDER BY timestamp ASC;"
-    
-    stats_charts = conn.execute(query_charts, (fw_id,)).fetchall()
+    # **FIX**: This logic looks up the generation based on the fetched model.
+    model = fw['model']
+    generation = SPECS_MAP.get(model, {}).get('generation', 'N/A')
 
-    if stats_charts:
+    chart_data = get_firewall_stats_for_timespan(conn, fw_id, timespan)
+    summary_stats = None
+    if chart_data:
+        time_modifier = {'1h': '-1 hour', '6h': '-6 hours', '24h': '-24 hours', '7d': '-7 days', '30d': '-30 days'}.get(timespan, '-5 minutes')
         query_summary = f"SELECT MAX(active_sessions) as max_sessions, MAX(total_input_bps) as max_input, MAX(total_output_bps) as max_output, MAX(cpu_load) as max_cpu, MAX(dataplane_load) as max_dp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}');"
         summary_stats = conn.execute(query_summary, (fw_id,)).fetchone()
-        
-        if is_summarized:
-            labels = [datetime.strptime(s['period'], date_format_py).strftime(date_format_py) for s in stats_charts]
-        else:
-            labels = [datetime.strptime(s['timestamp'], '%Y-%m-%d %H:%M:%S.%f').strftime('%H:%M:%S') for s in stats_charts]
-        
-        full_data = {
-            "chart_data": {
-                "labels": labels, "session_data": [s['sessions'] for s in stats_charts],
-                "input_data_mbps": [s['input_bps'] / 1000000 for s in stats_charts],
-                "output_data_mbps": [s['output_bps'] / 1000000 for s in stats_charts],
-                "cpu_data": [s['cpu'] for s in stats_charts], "dataplane_data": [s['dp'] for s in stats_charts]
-            },
-            "summary_data": dict(summary_stats), "title_prefix": title_prefix
-        }
-    
+    full_data = {"chart_data": chart_data, "summary_data": dict(summary_stats) if summary_stats else None}
     conn.close()
 
     return flask.render_template(
         'firewall_detail.html',
-        fw_id=fw_id, ip_address=fw['ip_address'],
+        fw_id=fw_id,
+        ip_address=fw['ip_address'],
+        hostname=fw['hostname'],
+        # **FIX**: Pass the corrected model and generation to the template
+        model=model,
+        generation=generation,
         full_data=full_data if full_data else None,
         current_timespan=timespan
     )
@@ -472,6 +475,7 @@ def background_worker_loop():
     firewall_states = {} 
     key = load_key()
     while True:
+        # --- SETUP FOR POLLING CYCLE ---
         conn = get_db_connection()
         settings_rows = conn.execute("SELECT key, value FROM settings").fetchall()
         settings = {row['key']: row['value'] for row in settings_rows}
@@ -480,21 +484,22 @@ def background_worker_loop():
         poll_interval = int(settings.get('POLL_INTERVAL', 30))
 
         if not fw_user or not encrypted_pass:
-            print("Worker: Credentials not set. Waiting...")
+            print("Worker: Credentials not set in database. Waiting...")
             conn.close()
             time.sleep(poll_interval)
             continue
             
         fw_password = decrypt_message(encrypted_pass, key)
-        firewalls = conn.execute('SELECT id, ip_address, model FROM firewalls').fetchall()
+        firewalls = conn.execute('SELECT id, ip_address, hostname, model FROM firewalls').fetchall()
         hosts_to_poll = [fw['ip_address'] for fw in firewalls]
 
         if not hosts_to_poll:
-            print("Worker: No firewalls in DB. Waiting...")
+            print("Worker: No firewalls in DB to poll. Waiting...")
             conn.close()
             time.sleep(poll_interval)
             continue
 
+        # --- GET API KEYS & DISCOVER MODELS ---
         init_tasks = [(host, fw_user, fw_password) for host in hosts_to_poll]
         api_keys = {}
         try:
@@ -502,29 +507,35 @@ def background_worker_loop():
                 for res in pool.map(get_api_key, init_tasks):
                     if res['status'] == 'success':
                         api_keys[res['host']] = res['api_key']
-                        # ** NEW: Check if model needs to be discovered **
-                        fw_entry = next((fw for fw in firewalls if fw['ip_address'] == res['host']), None)
-                        if fw_entry and not fw_entry['model']:
-                            try:
-                                print(f"Discovering model for {res['host']}...")
-                                sys_info_xml = requests.get(f"https://{res['host']}/api/?type=op&cmd=<show><system><info/></system></show>&key={res['api_key']}", verify=False, timeout=10).content
-                                model = ET.fromstring(sys_info_xml).findtext('.//model')
-                                if model:
-                                    conn.execute('UPDATE firewalls SET model = ? WHERE id = ?', (model, fw_entry['id']))
-                                    conn.commit()
-                                    print(f"Discovered and saved model {model} for {res['host']}.")
-                            except Exception as e:
-                                print(f"Could not discover model for {res['host']}: {e}")
         except Exception as e:
             print(f"Worker Error during API key generation: {e}")
             conn.close()
             time.sleep(poll_interval)
             continue
         
-        conn.close() # Close connection after model updates
-
+        # ** NEW, ROBUST MODEL DISCOVERY LOGIC **
+        # For any firewall that has an API key but no model or hostname, get the info.
+        firewalls_to_update = [fw for fw in firewalls if fw['ip_address'] in api_keys and (not fw['model'] or not fw['hostname'])]
+        if firewalls_to_update:
+            print(f"Found {len(firewalls_to_update)} firewalls with unknown models/hostnames. Discovering...")
+            for fw in firewalls_to_update:
+                try:
+                    api_key = api_keys[fw['ip_address']]
+                    sys_info_xml = requests.get(f"https://{fw['ip_address']}/api/?type=op&cmd=<show><system><info/></system></show>&key={api_key}", verify=False, timeout=10).content
+                    root = ET.fromstring(sys_info_xml)
+                    model = root.findtext('.//model')
+                    hostname = root.findtext('.//hostname')
+                    if model and hostname:
+                        conn.execute('UPDATE firewalls SET model = ?, hostname = ? WHERE id = ?', (model, hostname, fw['id']))
+                        print(f"Discovered and saved model '{model}' and hostname '{hostname}' for {fw['ip_address']}.")
+                except Exception as e:
+                    print(f"Could not discover model/hostname for {fw['ip_address']}: {e}")
+            conn.commit()
+        
+        # --- POLLING ---
         if not api_keys:
-            print("Worker: Could not get API key for any firewalls. Waiting...")
+            print("Worker: Could not get API key for any firewalls. Check credentials in Settings. Waiting...")
+            conn.close()
             time.sleep(poll_interval)
             continue
             
@@ -532,7 +543,7 @@ def background_worker_loop():
         with multiprocessing.Pool(processes=len(poll_tasks)) as pool:
             results = pool.map(poll_single_firewall, poll_tasks)
         
-        conn = get_db_connection()
+        # --- SAVE RESULTS ---
         timestamp_now = datetime.now()
         for res in results:
             host = res['host']
@@ -544,11 +555,14 @@ def background_worker_loop():
                 firewall_states[host] = res['new_state']
                 s = res['data']
                 if s['total_input_bps'] > 0 or s['total_output_bps'] > 0 or s['active_sessions'] > 0:
-                    conn.execute('INSERT INTO stats (firewall_id, timestamp, active_sessions, total_input_bps, total_output_bps, cpu_load, dataplane_load) VALUES (?, ?, ?, ?, ?, ?, ?)',(firewall_id, timestamp_now, s['active_sessions'], s['total_input_bps'], s['total_output_bps'], s['cpu_load'], s['dataplane_load']))
+                    conn.execute(
+                        'INSERT INTO stats (firewall_id, timestamp, active_sessions, total_input_bps, total_output_bps, cpu_load, dataplane_load) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                        (firewall_id, timestamp_now, s['active_sessions'], s['total_input_bps'], s['total_output_bps'], s['cpu_load'], s['dataplane_load'])
+                    )
         
         conn.commit()
         conn.close()
-        # print(f"Polling cycle finished. Sleeping for {poll_interval} seconds.")
+        print(f"Polling cycle finished. Sleeping for {poll_interval} seconds.")
         time.sleep(poll_interval)
 
 def get_firewall_stats_for_timespan(conn, fw_id, timespan):
@@ -558,14 +572,14 @@ def get_firewall_stats_for_timespan(conn, fw_id, timespan):
     """
     is_summarized = timespan in ['24h', '7d', '30d']
     
-    # Define query parameters based on the chosen timespan
+    # Define query parameters based on the chosen timespan. Use MAX for summarized views.
     if is_summarized:
         if timespan == '7d':
-            time_modifier, date_format_sql, date_format_py, title_prefix = '-7 days', '%Y-%m-%d', '%Y-%m-%d', "Daily Average"
+            time_modifier, date_format_sql, date_format_py, title_prefix = '-7 days', '%Y-%m-%d', '%Y-%m-%d', "Daily Peak"
         elif timespan == '30d':
-            time_modifier, date_format_sql, date_format_py, title_prefix = '-30 days', '%Y-%m-%d', '%Y-%m-%d', "Daily Average"
+            time_modifier, date_format_sql, date_format_py, title_prefix = '-30 days', '%Y-%m-%d', '%Y-%m-%d', "Daily Peak"
         else: # 24h
-            time_modifier, date_format_sql, date_format_py, title_prefix = '-24 hours', '%Y-%m-%d %H:00', '%Y-%m-%d %H:%M', "Hourly Average"
+            time_modifier, date_format_sql, date_format_py, title_prefix = '-24 hours', '%Y-%m-%d %H:00', '%Y-%m-%d %H:%M', "Hourly Peak"
     else: # Raw data reports
         if timespan == '1h':
             time_modifier, title_prefix = '-1 hour', "Raw Data"
@@ -574,12 +588,12 @@ def get_firewall_stats_for_timespan(conn, fw_id, timespan):
         else: # 5m
             time_modifier, title_prefix = '-5 minutes', "Raw Data"
     
-    # Select the correct query based on whether we need to summarize
+    # Select the correct query based on whether we need to summarize (MAX vs raw)
     if is_summarized:
         query = f"""
             SELECT strftime('{date_format_sql}', timestamp) as period,
-                   AVG(active_sessions) as sessions, AVG(total_input_bps) as input_bps,
-                   AVG(total_output_bps) as output_bps, AVG(cpu_load) as cpu, AVG(dataplane_load) as dp
+                   MAX(active_sessions) as sessions, MAX(total_input_bps) as input_bps,
+                   MAX(total_output_bps) as output_bps, MAX(cpu_load) as cpu, MAX(dataplane_load) as dp
             -- **FIX**: Added 'localtime' to the time comparison
             FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}')
             GROUP BY period ORDER BY period ASC;
@@ -621,4 +635,4 @@ if __name__ == '__main__':
     worker_thread.start()
     log = logging.getLogger('werkzeug')
     log.setLevel(logging.ERROR)    
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(host='0.0.0.0', port=4000, debug=False)

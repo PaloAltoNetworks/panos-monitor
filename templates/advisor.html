@@ -2,7 +2,6 @@
 
 {% block content %}
 
-{# ** NEW: Custom style block to make the page wider ** #}
 <style>
   main.container {
     max-width: 1600px;
@@ -30,6 +29,8 @@
             <tr>
                 <th>Firewall</th>
                 <th>Model</th>
+                {# ** NEW: Added Generation column header ** #}
+                <th>Generation</th>
                 <th>Peak Sessions / Max</th>
                 <th>Session Util.</th>
                 <th>Peak Throughput / Max (Mbps)</th>
@@ -42,6 +43,8 @@
             <tr>
                 <td>{{ res.ip_address }}</td>
                 <td>{{ res.model or 'Unknown' }}</td>
+                {# ** NEW: Added Generation data cell ** #}
+                <td>{{ res.generation }}</td>
                 <td>
                     {{ "{:,.0f}".format(res.peak_sessions) }} / 
                     {% if res.max_sessions is number %}
@@ -64,7 +67,7 @@
                 <td {% if res.throughput_util >= 80 %}style="color:red; font-weight:bold;"{% endif %}>
                     {{ "%.1f"|format(res.throughput_util) }}%
                 </td>
-                <td {% if res.recommendation != 'Within Spec' %}style="color:orange; font-weight:bold;"{% endif %}>
+                <td {% if res.recommendation != 'Sized Appropriately' %}style="color:orange; font-weight:bold;"{% endif %}>
                     {{ res.recommendation }}
                 </td>
             </tr>
