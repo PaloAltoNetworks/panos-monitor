@@ -18,6 +18,7 @@ A simple, web-based monitoring dashboard for Palo Alto Networks firewalls. This 
 * **CPU & Dataplane Monitoring:** Tracks the load average for both the management plane (peak core) and data plane (average of all cores).
 * **Automatic Discovery:** Automatically discovers and saves the **hostname** and **model** for newly added firewalls.
 * **Panorama Integration:** Import all connected firewalls directly from your Panorama instance with a single click.
+* **Dynamic Model Management:** Add, view, and delete firewall hardware specifications directly from the web interface, without editing any files.
 * **Multi-Firewall Support:** Monitor dozens of firewalls. Firewalls can be added individually or bulk-imported from a text file.
 * **Persistent Storage:** Uses a local SQLite database (`monitoring.db`) to store all configuration and historical statistics.
 * **Web-Based Configuration:** Easily configure API credentials and the polling interval from a dedicated Settings page in the web UI.
@@ -68,10 +69,6 @@ Install the required Python libraries from the `requirements.txt` file.
 ```
 pip install -r requirements.txt
 ```
-### 5. Customize Model Specifications
-
-The application includes a `pa_models.py` file with specifications for a sample set of firewall models. For the Upgrade Advisor to be accurate, you should edit this file to include the models and correct performance specifications relevant to your environment.
-
 ### 6. (Optional) Add a Favicon
 
 To add a custom icon to your browser tabs:
@@ -106,6 +103,10 @@ Navigate to the **Manage Firewalls** page. You have three options:
 2.  **Add Single Firewall:** Enter an IP address manually.
 3.  **Import from File:** Upload a `.txt` file with one IP address per line.
 
+### 4. Managing Firewall Models
+
+Navigate to the **Manage Models** page. Here you can add new firewall models or delete existing ones. This data is used by the Upgrade Advisor. On first run, the application will automatically import a default list of models.
+
 The background poller will automatically detect the model of newly added firewalls on its next cycle.
 
 ### 4. Viewing Data and Graphs
@@ -130,6 +131,6 @@ The background poller will automatically detect the model of newly added firewal
 * **Front-End:** A **Flask** web application serves the HTML pages.
 * **Back-End:** A **background thread** runs a continuous polling loop, which uses a **multiprocessing pool** to poll devices concurrently.
 * **Data Storage:** A single-file **SQLite** database (`monitoring.db`) stores all application data.
-* **Configuration:** Application settings, including encrypted API credentials, are stored in the `settings` table. Hardware specifications for the Upgrade Advisor are stored in the `pa_models.py` file.
+* **Configuration:** Application settings, including encrypted API credentials and hardware specifications for the Upgrade Advisor, are stored in the database.
 * **Security:** The password encryption key is stored in the `secret.key` file. **Important:** Do not delete this file, as it is required to decrypt the stored credentials. If you back up the database, back up this key file as well.
 * **PDF Generation:** PDF reports are generated entirely on the server using **Matplotlib** to create chart images and **FPDF2** to assemble the document.

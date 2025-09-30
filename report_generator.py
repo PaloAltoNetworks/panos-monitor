@@ -2,15 +2,23 @@ import sqlite3
 import io
 import tempfile
 from datetime import datetime
-from fpdf import FPDF
 import matplotlib
-import matplotlib.pyplot as plt
-from pa_models import SPECS_MAP
+from fpdf import FPDF
+import matplotlib.pyplot as plt # Keep this import
 
 # Use a backend that doesn't require a GUI
 matplotlib.use('Agg')
 
+# --- NEW: Remove import from pa_models.py ---
+# from pa_models import SPECS_MAP
+
+
 # --- HELPER FUNCTIONS ---
+
+def load_specs_from_db(conn):
+    """Loads all model specifications from the database into a dictionary."""
+    models = conn.execute("SELECT * FROM firewall_models").fetchall()
+    return {m['model']: dict(m) for m in models}
 
 def _fetch_and_process_data(conn, fw_id, timespan):
     """
@@ -112,7 +120,7 @@ def create_summary_table_page(pdf, firewalls, conn, timespan, title, specs_map):
         summary = conn.execute(query, (fw['id'],)).fetchone()
         
         # **CHANGE**: Now uses the 'specs_map' variable that was passed in
-        generation = specs_map.get(fw['model'], {}).get('generation', 'N/A')
+        generation = specs_map.get(fw['model'], {}).get('generation', 'N/A') # Use .get() for safety
 
         if summary and summary['max_sessions'] is not None:
             pdf.cell(40, 8, fw['hostname'] or 'N/A', 1)
@@ -136,6 +144,8 @@ def generate_report_pdf(db_file, timespan, report_type='graphs_only'):
     if not firewalls:
         conn.close()
         return None
+    
+    specs_map = load_specs_from_db(conn) # Load specs from DB here
 
     pdf = FPDF(orientation="L", unit="mm", format="A4")
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -148,17 +158,17 @@ def generate_report_pdf(db_file, timespan, report_type='graphs_only'):
 
     # Handle the three different report types
     if report_type == 'table_only':
-        create_summary_table_page(pdf, firewalls, conn, timespan, report_title, SPECS_MAP)
+        create_summary_table_page(pdf, firewalls, conn, timespan, report_title, specs_map)
     
     elif report_type == 'combined':
-        create_summary_table_page(pdf, firewalls, conn, timespan, report_title, SPECS_MAP)
+        create_summary_table_page(pdf, firewalls, conn, timespan, report_title, specs_map)
         for fw in firewalls:
             pdf.add_page()
             pdf.set_font("Helvetica", "B", 16)
             fw_name = fw['hostname'] or fw['ip_address']
             pdf.cell(0, 10, f"Graphs for {fw_name} ({fw['ip_address']})", 0, 1, 'C')
             model = fw['model'] or "Unknown"
-            generation = SPECS_MAP.get(model, {}).get('generation', 'N/A')
+            generation = specs_map.get(model, {}).get('generation', 'N/A')
             pdf.set_font("Helvetica", "", 12)
             pdf.cell(0, 10, f"Model: {model} | Generation: {generation}", 0, 1, 'C')
             
@@ -191,7 +201,7 @@ def generate_report_pdf(db_file, timespan, report_type='graphs_only'):
             fw_name = fw['hostname'] or fw['ip_address']
             pdf.cell(0, 10, f"Graphs for {fw_name} ({fw['ip_address']})", 0, 1, 'C')
             model = fw['model'] or "Unknown"
-            generation = SPECS_MAP.get(model, {}).get('generation', 'N/A')
+            generation = specs_map.get(model, {}).get('generation', 'N/A')
             pdf.set_font("Helvetica", "", 12)
             pdf.cell(0, 10, f"Model: {model} | Generation: {generation}", 0, 1, 'C')
             

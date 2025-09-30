@@ -41,7 +41,13 @@
         <tbody>
         {% for res in results %}
             <tr>
-                <td>{{ res.ip_address }}</td>
+                <td>
+                    {% if res.hostname %}
+                        {{ res.hostname }} <small>({{ res.ip_address }})</small>
+                    {% else %}
+                        {{ res.ip_address }}
+                    {% endif %}
+                </td>
                 <td>{{ res.model or 'Unknown' }}</td>
                 {# ** NEW: Added Generation data cell ** #}
                 <td>{{ res.generation }}</td>

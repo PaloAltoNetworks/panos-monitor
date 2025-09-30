@@ -12,7 +12,6 @@ import threading
 from cryptography.fernet import Fernet
 import report_generator
 import logging
-from pa_models import SPECS, SPECS_MAP
 
 # --- Configuration ---
 DB_FILE = "monitoring.db"
@@ -52,6 +51,8 @@ def init_db():
     conn.execute('PRAGMA foreign_keys = ON;')
     conn.execute('''CREATE TABLE IF NOT EXISTS firewalls (id INTEGER PRIMARY KEY AUTOINCREMENT, ip_address TEXT UNIQUE NOT NULL, last_checked TIMESTAMP, status TEXT DEFAULT 'unknown');''')
     conn.execute('''CREATE TABLE IF NOT EXISTS stats (id INTEGER PRIMARY KEY AUTOINCREMENT, firewall_id INTEGER NOT NULL, timestamp TIMESTAMP NOT NULL, active_sessions INTEGER, total_input_bps REAL, total_output_bps REAL, cpu_load REAL, dataplane_load REAL, FOREIGN KEY (firewall_id) REFERENCES firewalls (id) ON DELETE CASCADE);''')
+    # ** NEW: Table for firewall model specifications **
+    conn.execute('''CREATE TABLE IF NOT EXISTS firewall_models (model TEXT PRIMARY KEY, generation TEXT, max_sessions INTEGER, max_throughput_mbps INTEGER);''')
     conn.execute('''CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);''')
     conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('POLL_INTERVAL', '30')")
     
@@ -64,13 +65,38 @@ def init_db():
     if 'hostname' not in columns:
         conn.execute("ALTER TABLE firewalls ADD COLUMN hostname TEXT;")
 
+    # ** NEW: One-time data seeding from pa_models.py to the database **
+    seed_firewall_models(conn)
+
     conn.commit()
     conn.close()
+
+def seed_firewall_models(conn):
+    """One-time migration of firewall specs from pa_models.py into the database."""
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM firewall_models")
+    if cursor.fetchone()[0] > 0:
+        return # Table is already populated
+
+    from pa_models import SPECS # Import only for this one-time seeding
+    print("Seeding firewall_models table from pa_models.py...")
+    for spec in SPECS:
+        conn.execute(
+            "INSERT OR IGNORE INTO firewall_models (model, generation, max_sessions, max_throughput_mbps) VALUES (?, ?, ?, ?)",
+            (spec['model'], spec.get('generation', 'N/A'), spec['max_sessions'], spec['max_throughput_mbps'])
+        )
+    print("Seeding complete.")
+
+def load_specs_from_db(conn):
+    """Loads all model specifications from the database into a dictionary."""
+    models = conn.execute("SELECT * FROM firewall_models").fetchall()
+    return {m['model']: dict(m) for m in models}
 
 # --- Web Page Routes ---
 @app.route('/')
 def index():
     conn = get_db_connection()
+    specs_map = load_specs_from_db(conn)
     
     settings_row = conn.execute("SELECT value FROM settings WHERE key = 'POLL_INTERVAL'").fetchone()
     polling_interval = int(settings_row['value']) if settings_row else 30
@@ -93,15 +119,16 @@ def index():
     stats_from_db = conn.execute(query).fetchall()
     conn.close()
     
-    # ** NEW: Process the results to add generation and format the timestamp **
+    # Process the results to add generation and format the timestamp
     processed_stats = []
     for stat in stats_from_db:
         # Convert the database row to a mutable dictionary
         stat_dict = dict(stat)
         
         # Look up the generation based on the model
+        # This part remains the same, as the data structure is compatible
         model = stat_dict.get('model')
-        stat_dict['generation'] = SPECS_MAP.get(model, {}).get('generation', 'N/A')
+        stat_dict['generation'] = specs_map.get(model, {}).get('generation', 'N/A')
         
         # Reformat the timestamp string to remove fractional seconds
         if stat_dict['timestamp']:
@@ -123,13 +150,15 @@ def advisor():
     if flask.request.method == 'POST':
         selected_timespan = flask.request.form['timespan']
         time_modifier = {'7d': '-7 days', '30d': '-30 days'}.get(selected_timespan, '-7 days')
-        
+
         conn = get_db_connection()
-        firewalls = conn.execute('SELECT id, ip_address, model FROM firewalls').fetchall()
+        specs_map = load_specs_from_db(conn)
+        specs_list = conn.execute("SELECT * FROM firewall_models").fetchall()
+        firewalls = conn.execute('SELECT id, ip_address, hostname, model FROM firewalls').fetchall()
         
         results = []
         for fw in firewalls:
-            res = {'ip_address': fw['ip_address'], 'model': fw['model']}
+            res = {'ip_address': fw['ip_address'], 'model': fw['model'], 'hostname': fw['hostname']}
             
             query = f"SELECT MAX(active_sessions) as max_s, MAX(total_input_bps + total_output_bps) as max_tp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}');"
             peak_stats = conn.execute(query, (fw['id'],)).fetchone()
@@ -140,8 +169,8 @@ def advisor():
             res['peak_sessions'] = peak_sessions
             res['peak_throughput'] = peak_throughput_mbps
 
-            if fw['model'] and fw['model'] in SPECS_MAP:
-                spec = SPECS_MAP[fw['model']]
+            if fw['model'] and fw['model'] in specs_map:
+                spec = specs_map[fw['model']]
                 # ** NEW: Add generation to the results dictionary **
                 res['generation'] = spec.get('generation', 'N/A')
                 res['max_sessions'] = spec['max_sessions']
@@ -152,8 +181,8 @@ def advisor():
 
                 res['recommendation'] = 'Sized Appropriately'
                 if res['session_util'] >= 80 or res['throughput_util'] >= 80:
-                    current_generation = spec.get('generation')
-                    same_gen_models = [s for s in SPECS if s.get('generation') == current_generation]
+                    current_generation = spec.get('generation', 'N/A')
+                    same_gen_models = [s for s in specs_list if s.get('generation') == current_generation]
                     current_index = next((i for i, item in enumerate(same_gen_models) if item["model"] == fw['model']), -1)
 
                     if 0 <= current_index < len(same_gen_models) - 1:
@@ -262,9 +291,10 @@ def firewall_detail(fw_id):
         conn.close()
         return "Firewall not found", 404
 
-    # **FIX**: This logic looks up the generation based on the fetched model.
+    # This logic looks up the generation based on the fetched model.
     model = fw['model']
-    generation = SPECS_MAP.get(model, {}).get('generation', 'N/A')
+    specs_map = load_specs_from_db(conn)
+    generation = specs_map.get(model, {}).get('generation', 'N/A')
 
     chart_data = get_firewall_stats_for_timespan(conn, fw_id, timespan)
     summary_stats = None
@@ -280,7 +310,7 @@ def firewall_detail(fw_id):
         fw_id=fw_id,
         ip_address=fw['ip_address'],
         hostname=fw['hostname'],
-        # **FIX**: Pass the corrected model and generation to the template
+        # Pass the corrected model and generation to the template
         model=model,
         generation=generation,
         full_data=full_data if full_data else None,
@@ -386,6 +416,41 @@ def delete_firewall(fw_id):
     conn.execute('DELETE FROM firewalls WHERE id = ?', (fw_id,)); conn.commit()
     conn.close()
     return flask.redirect(flask.url_for('manage_firewalls'))
+
+# --- NEW: Routes for Managing Firewall Models ---
+@app.route('/models')
+def manage_models():
+    conn = get_db_connection()
+    models = conn.execute('SELECT * FROM firewall_models ORDER BY generation, max_sessions, max_throughput_mbps').fetchall()
+    conn.close()
+    return flask.render_template('models.html', models=models)
+
+@app.route('/add_model', methods=['POST'])
+def add_model():
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            "INSERT INTO firewall_models (model, generation, max_sessions, max_throughput_mbps) VALUES (?, ?, ?, ?)",
+            (flask.request.form['model'], flask.request.form['generation'], flask.request.form['max_sessions'], flask.request.form['max_throughput'])
+        )
+        conn.commit()
+        flask.flash(f"Model '{flask.request.form['model']}' added successfully.", "success")
+    except sqlite3.IntegrityError:
+        flask.flash(f"Error: Model '{flask.request.form['model']}' already exists.", "error")
+    except Exception as e:
+        flask.flash(f"An error occurred: {e}", "error")
+    finally:
+        conn.close()
+    return flask.redirect(flask.url_for('manage_models'))
+
+@app.route('/delete_model', methods=['POST'])
+def delete_model():
+    conn = get_db_connection()
+    conn.execute('DELETE FROM firewall_models WHERE model = ?', (flask.request.form['model'],))
+    conn.commit()
+    conn.close()
+    flask.flash(f"Model '{flask.request.form['model']}' deleted successfully.", "success")
+    return flask.redirect(flask.url_for('manage_models'))
 
 # --- Background Polling Logic ---
 def get_api_key(args):

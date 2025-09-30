@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h2>Manage Firewall Models</h2>
+<p>Add, remove, or view firewall model specifications used by the Upgrade Advisor.</p>
+
+<div class="grid">
+    <article>
+        <h4>Add New Model</h4>
+        <form action="{{ url_for('add_model') }}" method="post">
+            <div class="grid">
+                <label for="model">
+                    Model Name
+                    <input type="text" id="model" name="model" placeholder="e.g., PA-440" required>
+                </label>
+                <label for="generation">
+                    Generation
+                    <input type="text" id="generation" name="generation" placeholder="e.g., 4th Gen" required>
+                </label>
+            </div>
+            <div class="grid">
+                <label for="max_sessions">
+                    Max Sessions
+                    <input type="number" id="max_sessions" name="max_sessions" placeholder="e.g., 200000" required>
+                </label>
+                <label for="max_throughput">
+                    Max Throughput (Mbps)
+                    <input type="number" id="max_throughput" name="max_throughput" placeholder="e.g., 5000" required>
+                </label>
+            </div>
+            <button type="submit">Add Model</button>
+        </form>
+    </article>
+</div>
+
+<article>
+    <h4>Existing Models</h4>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Model</th>
+                    <th>Generation</th>
+                    <th>Max Sessions</th>
+                    <th>Max Throughput (Mbps)</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for model in models %}
+                <tr>
+                    <td>{{ model.model }}</td>
+                    <td>{{ model.generation }}</td>
+                    <td>{{ "{:,}".format(model.max_sessions) }}</td>
+                    <td>{{ "{:,}".format(model.max_throughput_mbps) }}</td>
+                    <td>
+                        <form action="{{ url_for('delete_model') }}" method="post" onsubmit="return confirm('Are you sure you want to delete this model?');">
+                            <input type="hidden" name="model" value="{{ model.model }}">
+                            <button type="submit" class="secondary outline">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</article>
+{% endblock %}

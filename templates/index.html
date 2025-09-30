@@ -12,7 +12,7 @@
     
 <p>Showing the latest statistics from the last successful poll. Auto-refreshes every {{ polling_interval }} seconds.</p>
 
-<figure>
+<div class="table-container">
     <table>
         <thead>
             <tr>
@@ -65,7 +65,7 @@
             {% endfor %}
         </tbody>
     </table>
-</figure>
+</div>
     
 <script>
     setTimeout(() => {
