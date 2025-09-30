@@ -102,19 +102,19 @@ def create_summary_table_page(pdf, firewalls, conn, timespan, title, specs_map):
 
     time_modifier = {'1h': '-1 hour', '6h': '-6 hours', '24h': '-24 hours', '7d': '-7 days', '30d': '-30 days'}.get(timespan, '-5 minutes')
     
-    pdf.set_font("Helvetica", "B", 10)
-    pdf.cell(40, 8, 'Hostname', 1)
-    pdf.cell(35, 8, 'Firewall IP', 1)
-    pdf.cell(30, 8, 'Model', 1)
-    pdf.cell(30, 8, 'Generation', 1)
-    pdf.cell(35, 8, 'Max Sessions', 1)
-    pdf.cell(35, 8, 'Peak Input (Mbps)', 1)
-    pdf.cell(35, 8, 'Peak Output (Mbps)', 1)
-    pdf.cell(25, 8, 'Peak CPU (%)', 1)
-    pdf.cell(25, 8, 'Peak DP (%)', 1)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.cell(40, 8, 'Hostname', 1, 0, 'C')
+    pdf.cell(30, 8, 'Firewall IP', 1, 0, 'C')
+    pdf.cell(25, 8, 'Model', 1, 0, 'C')
+    pdf.cell(25, 8, 'Generation', 1, 0, 'C')
+    pdf.cell(30, 8, 'Max Sessions', 1, 0, 'C')
+    pdf.cell(30, 8, 'Peak Input (Mbps)', 1, 0, 'C')
+    pdf.cell(30, 8, 'Peak Output (Mbps)', 1, 0, 'C')
+    pdf.cell(25, 8, 'Peak CPU (%)', 1, 0, 'C')
+    pdf.cell(25, 8, 'Peak DP (%)', 1, 0, 'C')
     pdf.ln()
 
-    pdf.set_font("Helvetica", "", 9)
+    pdf.set_font("Helvetica", "", 8)
     for fw in firewalls:
         query = f"SELECT MAX(active_sessions) as max_sessions, MAX(total_input_bps) as max_input, MAX(total_output_bps) as max_output, MAX(cpu_load) as max_cpu, MAX(dataplane_load) as max_dp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}');"
         summary = conn.execute(query, (fw['id'],)).fetchone()
@@ -123,15 +123,15 @@ def create_summary_table_page(pdf, firewalls, conn, timespan, title, specs_map):
         generation = specs_map.get(fw['model'], {}).get('generation', 'N/A') # Use .get() for safety
 
         if summary and summary['max_sessions'] is not None:
-            pdf.cell(40, 8, fw['hostname'] or 'N/A', 1)
-            pdf.cell(35, 8, fw['ip_address'], 1)
-            pdf.cell(30, 8, fw['model'] or 'Unknown', 1)
-            pdf.cell(30, 8, generation, 1)
-            pdf.cell(35, 8, str(summary['max_sessions']), 1)
-            pdf.cell(35, 8, f"{summary['max_input'] / 1000000:.2f}", 1)
-            pdf.cell(35, 8, f"{summary['max_output'] / 1000000:.2f}", 1)
-            pdf.cell(25, 8, f"{summary['max_cpu']:.2f}", 1)
-            pdf.cell(25, 8, f"{summary['max_dp']:.2f}", 1)
+            pdf.cell(40, 8, fw['hostname'] or 'N/A', 1, 0, 'L')
+            pdf.cell(30, 8, fw['ip_address'], 1, 0, 'L')
+            pdf.cell(25, 8, fw['model'] or 'Unknown', 1, 0, 'L')
+            pdf.cell(25, 8, generation, 1, 0, 'L')
+            pdf.cell(30, 8, str(summary['max_sessions']), 1, 0, 'R')
+            pdf.cell(30, 8, f"{summary['max_input'] / 1000000:.2f}", 1, 0, 'R')
+            pdf.cell(30, 8, f"{summary['max_output'] / 1000000:.2f}", 1, 0, 'R')
+            pdf.cell(25, 8, f"{summary['max_cpu']:.2f}", 1, 0, 'R')
+            pdf.cell(25, 8, f"{summary['max_dp']:.2f}", 1, 0, 'R')
             pdf.ln()
 
 # --- MAIN PDF GENERATION FUNCTION ---
