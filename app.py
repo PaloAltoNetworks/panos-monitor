@@ -544,20 +544,21 @@ def background_worker_loop():
             results = pool.map(poll_single_firewall, poll_tasks)
         
         # --- SAVE RESULTS ---
-        timestamp_now = datetime.now()
+        # Explicitly format the datetime object to a string to avoid DeprecationWarning in Python 3.12+
+        timestamp_now_str = datetime.now().isoformat(sep=' ', timespec='microseconds')
         for res in results:
             host = res['host']
             firewall_id = next((fw['id'] for fw in firewalls if fw['ip_address'] == host), None)
             if not firewall_id: continue
             
-            conn.execute('UPDATE firewalls SET last_checked = ?, status = ? WHERE id = ?', (timestamp_now, res['status'], firewall_id))
+            conn.execute('UPDATE firewalls SET last_checked = ?, status = ? WHERE id = ?', (timestamp_now_str, res['status'], firewall_id))
             if res['status'] == 'success':
                 firewall_states[host] = res['new_state']
                 s = res['data']
                 if s['total_input_bps'] > 0 or s['total_output_bps'] > 0 or s['active_sessions'] > 0:
                     conn.execute(
                         'INSERT INTO stats (firewall_id, timestamp, active_sessions, total_input_bps, total_output_bps, cpu_load, dataplane_load) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                        (firewall_id, timestamp_now, s['active_sessions'], s['total_input_bps'], s['total_output_bps'], s['cpu_load'], s['dataplane_load'])
+                        (firewall_id, timestamp_now_str, s['active_sessions'], s['total_input_bps'], s['total_output_bps'], s['cpu_load'], s['dataplane_load'])
                     )
         
         conn.commit()

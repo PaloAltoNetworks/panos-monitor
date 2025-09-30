@@ -49,13 +49,13 @@ It's highly recommended to use a virtual environment to manage project dependenc
 
 * **Create the environment:**
     ```
-    python3 -m venv panos-monitor
+    python3 -m venv pan-monitor-app
     ```
 * **Activate the environment:**
     * On macOS or Linux:
 
         ```
-        source panos-monitor/bin/activate
+        source pan-monitor-app/bin/activate
         ```
     * On Windows:
 
@@ -92,7 +92,7 @@ On the first run, the application will automatically create a `monitoring.db` da
 ### 2. Initial Configuration
 
 1.  Open your web browser and navigate to `http://127.0.0.1:5000`.
-2.  Navigate to the **Settings** page using the link in the navigation bar.
+2.  Navigate to the **Settings** page using the link in the navigation bar. **Note:** Your application runs on port **4000**, so the URL will be `http://<your-server-ip>:4000`.
 3.  Fill in the **Firewall Polling Settings**. These are the credentials the poller will use to connect to individual firewalls.
 4.  Fill in the **Panorama Import Settings**. These are the credentials for your Panorama instance, used only for importing devices.
 5.  Set the **Polling Interval** and click **Save Settings**.
