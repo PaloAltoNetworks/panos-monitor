@@ -9,13 +9,14 @@ A simple, web-based monitoring dashboard for Palo Alto Networks firewalls. This 
 ---
 ## Features ✨
 
-* **Web-Based Dashboard:** A clean, centralized dashboard to view the latest status for all monitored firewalls, including their **model**, status, CPU/DP load, and aggregate throughput.
+* **Web-Based Dashboard:** A clean, centralized dashboard to view the latest status for all monitored firewalls, including their **hostname**, **model**, status, CPU/DP load, and aggregate throughput.
 * **Historical Graphing:** Click on any firewall to view detailed historical graphs for its key performance metrics.
 * **Selectable Timeframes:** View graphs and summary data for various timeframes, from the last 5 minutes to the last 30 days.
 * **Upgrade Advisor:** Analyzes peak usage against known model specifications and recommends a hardware upgrade if utilization exceeds an 80% threshold.
 * **Peak Statistics Summary:** View a table of peak values (max sessions, highest throughput, max CPU/DP load) for each firewall over your selected timeframe.
 * **Flexible Exporting:** Export peak statistics to CSV, or generate PDF reports in multiple formats: Graphs Only, Table Only, or a Combined report.
 * **CPU & Dataplane Monitoring:** Tracks the load average for both the management plane (peak core) and data plane (average of all cores).
+* **Automatic Discovery:** Automatically discovers and saves the **hostname** and **model** for newly added firewalls.
 * **Panorama Integration:** Import all connected firewalls directly from your Panorama instance with a single click.
 * **Multi-Firewall Support:** Monitor dozens of firewalls. Firewalls can be added individually or bulk-imported from a text file.
 * **Persistent Storage:** Uses a local SQLite database (`monitoring.db`) to store all configuration and historical statistics.
