@@ -770,6 +770,10 @@ def get_firewall_stats_for_timespan(conn, fw_id, timespan):
     }
 
 if __name__ == '__main__':
+    # Add this for multiprocessing support in frozen executables (PyInstaller)
+    import multiprocessing
+    multiprocessing.freeze_support()
+
     load_key()
     init_db()
     worker_thread = threading.Thread(target=background_worker_loop, daemon=True)
