@@ -69,13 +69,18 @@ Install the required Python libraries from the `requirements.txt` file.
 ```
 pip install -r requirements.txt
 ```
+### 5. (Optional) Configure Default Firewalls
+
+You can pre-populate the application with a default list of firewalls. This is useful for new deployments.
+1. Open `app.py` in a text editor.
+2. Find the `DEFAULT_FIREWALLS` list inside the `seed_initial_firewalls` function.
+3. Add the IP addresses of your standard firewalls to this list.
 ### 6. (Optional) Add a Favicon
 
 To add a custom icon to your browser tabs:
 1. Create a `static` folder in your main project directory.
 2. Place an icon file named `favicon.ico` inside the `static` folder.
 
----
 ## Usage Guide 🚀
 
 ### 1. Run the Application
@@ -89,8 +94,8 @@ On the first run, the application will automatically create a `monitoring.db` da
 ### 2. Initial Configuration
 
 1.  Open your web browser and navigate to `http://127.0.0.1:5000`.
-2.  Navigate to the **Settings** page using the link in the navigation bar. **Note:** Your application runs on port **4000**, so the URL will be `http://<your-server-ip>:4000`.
-3.  Fill in the **Firewall Polling Settings**. These are the credentials the poller will use to connect to individual firewalls.
+2.  Navigate to the **Settings** page using the link in the navigation bar. The application runs on port **4000**, so the URL will be `http://<your-server-ip>:4000`.
+3.  Fill in the **Firewall Polling Settings**. These are the API credentials the poller will use to connect to individual firewalls.
 4.  Fill in the **Panorama Import Settings**. These are the credentials for your Panorama instance, used only for importing devices.
 5.  Set the **Polling Interval** and click **Save Settings**.
 
@@ -109,18 +114,18 @@ Navigate to the **Manage Models** page. Here you can add new firewall models or 
 
 The background poller will automatically detect the model of newly added firewalls on its next cycle.
 
-### 4. Viewing Data and Graphs
+### 5. Viewing Data and Graphs
 
 * The **Dashboard** shows the latest statistics for all devices.
 * Click on any firewall's **IP address** to navigate to its detail page. Here you can view a summary table of peak statistics, see historical graphs, and use the timeframe selector to switch between views.
 
-### 5. Using the Upgrade Advisor
+### 6. Using the Upgrade Advisor
 
 * Navigate to the **Upgrade Advisor** page from the main menu.
 * Select an analysis timeframe (e.g., Last 30 Days) and click 'Analyze'.
 * The page will display a table showing the peak usage for each firewall compared to its model's capacity and provide a recommendation (e.g., 'Sized Appropriately' or 'Upgrade Recommended').
 
-### 6. Exporting Data
+### 7. Exporting Data
 
 * **CSV:** On any firewall's detail page, export the summary table to a CSV file by clicking the **'Export Table to CSV'** button.
 * **PDF:** Navigate to the **Manage Firewalls** page and use the **Export PDF Report** dropdown. You can choose from three report types (Table Only, Graphs Only, Combined) across multiple timeframes.

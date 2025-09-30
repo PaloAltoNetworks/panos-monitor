@@ -68,6 +68,9 @@ def init_db():
     # ** NEW: One-time data seeding from pa_models.py to the database **
     seed_firewall_models(conn)
 
+    # ** NEW: Seed the database with a default list of firewalls if it's empty **
+    seed_initial_firewalls(conn)
+
     conn.commit()
     conn.close()
 
@@ -78,14 +81,86 @@ def seed_firewall_models(conn):
     if cursor.fetchone()[0] > 0:
         return # Table is already populated
 
-    from pa_models import SPECS # Import only for this one-time seeding
-    print("Seeding firewall_models table from pa_models.py...")
-    for spec in SPECS:
+    # This list is now self-contained and no longer depends on pa_models.py
+    DEFAULT_MODELS = [
+    {'model': 'PA-220', 'max_sessions': 64000, 'max_throughput_mbps': 320, 'generation': '3'},
+    {'model': 'PA-820', 'max_sessions': 128000, 'max_throughput_mbps': 800, 'generation': '3'},
+    {'model': 'PA-850', 'max_sessions': 192000, 'max_throughput_mbps': 900, 'generation': '3'},
+    {'model': 'PA-3220', 'max_sessions': 1000000, 'max_throughput_mbps': 2200, 'generation': '3'},
+    {'model': 'PA-3250', 'max_sessions': 2000000, 'max_throughput_mbps': 2500, 'generation': '3'},
+    {'model': 'PA-3260', 'max_sessions': 2200000, 'max_throughput_mbps': 4000, 'generation': '3'},
+    {'model': 'PA-5220', 'max_sessions': 4000000, 'max_throughput_mbps': 8800, 'generation': '3'},
+    {'model': 'PA-5250', 'max_sessions': 8000000, 'max_throughput_mbps': 19000, 'generation': '3'},
+    {'model': 'PA-5260', 'max_sessions': 32000000, 'max_throughput_mbps': 31000, 'generation': '3'},
+    {'model': 'PA-5280', 'max_sessions': 64000000, 'max_throughput_mbps': 31000, 'generation': '3'},
+    {'model': 'PA-7050', 'max_sessions': 245000000, 'max_throughput_mbps': 184000, 'generation': '3'},
+    {'model': 'PA-7080', 'max_sessions': 416000000, 'max_throughput_mbps': 305000, 'generation': '3'},
+    {'model': 'PA-410', 'max_sessions': 64000, 'max_throughput_mbps': 780, 'generation': '4'},
+    {'model': 'PA-410R', 'max_sessions': 64000, 'max_throughput_mbps': 780, 'generation': '4'},
+    {'model': 'PA-410R-5G', 'max_sessions': 64000, 'max_throughput_mbps': 780, 'generation': '4'},
+    {'model': 'PA-415', 'max_sessions': 64000, 'max_throughput_mbps': 800, 'generation': '4'},
+    {'model': 'PA-415-5G', 'max_sessions': 64000, 'max_throughput_mbps': 800, 'generation': '4'},
+    {'model': 'PA-440', 'max_sessions': 200000, 'max_throughput_mbps': 1200, 'generation': '4'},
+    {'model': 'PA-445', 'max_sessions': 200000, 'max_throughput_mbps': 1225, 'generation': '4'},
+    {'model': 'PA-450', 'max_sessions': 200000, 'max_throughput_mbps': 1900, 'generation': '4'},
+    {'model': 'PA-450R', 'max_sessions': 200000, 'max_throughput_mbps': 1900, 'generation': '4'},
+    {'model': 'PA-450R-5G', 'max_sessions': 200000, 'max_throughput_mbps': 1900, 'generation': '4'},
+    {'model': 'PA-455', 'max_sessions': 300000, 'max_throughput_mbps': 2300, 'generation': '4'},
+    {'model': 'PA-460', 'max_sessions': 400000, 'max_throughput_mbps': 3000, 'generation': '4'},
+    {'model': 'PA-1410', 'max_sessions': 945000, 'max_throughput_mbps': 4500, 'generation': '4'},
+    {'model': 'PA-1420', 'max_sessions': 1400000, 'max_throughput_mbps': 6200, 'generation': '4'},
+    {'model': 'PA-3410', 'max_sessions': 1400000, 'max_throughput_mbps': 7500, 'generation': '4'},
+    {'model': 'PA-3420', 'max_sessions': 2200000, 'max_throughput_mbps': 10000, 'generation': '4'},
+    {'model': 'PA-3430', 'max_sessions': 2500000, 'max_throughput_mbps': 15000, 'generation': '4'},
+    {'model': 'PA-3440', 'max_sessions': 3000000, 'max_throughput_mbps': 20000, 'generation': '4'},
+    {'model': 'PA-5410', 'max_sessions': 5000000, 'max_throughput_mbps': 35000, 'generation': '4'},
+    {'model': 'PA-5420', 'max_sessions': 7000000, 'max_throughput_mbps': 50000, 'generation': '4'},
+    {'model': 'PA-5430', 'max_sessions': 9000000, 'max_throughput_mbps': 60000, 'generation': '4'},
+    {'model': 'PA-5440', 'max_sessions': 20000000, 'max_throughput_mbps': 70000, 'generation': '4'},
+    {'model': 'PA-5445', 'max_sessions': 48000000, 'max_throughput_mbps': 76000, 'generation': '4'},
+    {'model': 'PA-5450', 'max_sessions': 100000000, 'max_throughput_mbps': 189000, 'generation': '4'},
+    {'model': 'PA-505', 'max_sessions': 64000, 'max_throughput_mbps': 800, 'generation': '5'},
+    {'model': 'PA-510', 'max_sessions': 100000, 'max_throughput_mbps': 1200, 'generation': '5'},
+    {'model': 'PA-520', 'max_sessions': 150000, 'max_throughput_mbps': 1800, 'generation': '5'},
+    {'model': 'PA-540', 'max_sessions': 250000, 'max_throughput_mbps': 2300, 'generation': '5'},
+    {'model': 'PA-545-POE', 'max_sessions': 300000, 'max_throughput_mbps': 3000, 'generation': '5'},
+    {'model': 'PA-550', 'max_sessions': 450000, 'max_throughput_mbps': 4000, 'generation': '5'},
+    {'model': 'PA-555-POE', 'max_sessions': 450000, 'max_throughput_mbps': 5000, 'generation': '5'},
+    {'model': 'PA-560', 'max_sessions': 600000, 'max_throughput_mbps': 6000, 'generation': '5'},
+    {'model': 'PA-5540', 'max_sessions': 39000000, 'max_throughput_mbps': 90000, 'generation': '5'},
+    {'model': 'PA-5550', 'max_sessions': 49000000, 'max_throughput_mbps': 120000, 'generation': '5'},
+    {'model': 'PA-5560', 'max_sessions': 74000000, 'max_throughput_mbps': 180000, 'generation': '5'},
+    {'model': 'PA-5570', 'max_sessions': 89000000, 'max_throughput_mbps': 240000, 'generation': '5'},
+    {'model': 'PA-5580', 'max_sessions': 99000000, 'max_throughput_mbps': 300000, 'generation': '5'},
+    {'model': 'PA-7500', 'max_sessions': 440000000, 'max_throughput_mbps': 1440000, 'generation': '5'},
+    ]
+
+    print("Database is new. Seeding firewall_models table with default data...")
+    for spec in DEFAULT_MODELS:
         conn.execute(
             "INSERT OR IGNORE INTO firewall_models (model, generation, max_sessions, max_throughput_mbps) VALUES (?, ?, ?, ?)",
             (spec['model'], spec.get('generation', 'N/A'), spec['max_sessions'], spec['max_throughput_mbps'])
         )
     print("Seeding complete.")
+
+def seed_initial_firewalls(conn):
+    """If the firewalls table is empty, seed it with a default list of devices."""
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM firewalls")
+    if cursor.fetchone()[0] > 0:
+        return # Table is already populated
+
+    # --- EDIT THIS LIST TO PRE-POPULATE YOUR DATABASE ---
+    DEFAULT_FIREWALLS = [
+        # '192.168.1.1',
+        # '10.0.0.1'
+    ]
+
+    if not DEFAULT_FIREWALLS: return
+
+    print(f"Database is new. Seeding with {len(DEFAULT_FIREWALLS)} default firewalls...")
+    for ip in DEFAULT_FIREWALLS:
+        conn.execute('INSERT OR IGNORE INTO firewalls (ip_address) VALUES (?)', (ip,))
 
 def load_specs_from_db(conn):
     """Loads all model specifications from the database into a dictionary."""
@@ -182,7 +257,7 @@ def advisor():
                 res['recommendation'] = 'Sized Appropriately'
                 if res['session_util'] >= 80 or res['throughput_util'] >= 80:
                     current_generation = spec.get('generation', 'N/A')
-                    same_gen_models = [s for s in specs_list if s.get('generation') == current_generation]
+                    same_gen_models = sorted([s for s in specs_list if s.get('generation') == current_generation], key=lambda x: x['max_throughput_mbps'])
                     current_index = next((i for i, item in enumerate(same_gen_models) if item["model"] == fw['model']), -1)
 
                     if 0 <= current_index < len(same_gen_models) - 1:
