@@ -2,21 +2,22 @@
 
 A simple, web-based monitoring dashboard for Palo Alto Networks firewalls. This tool polls devices for session count and throughput, stores the data in a local SQLite database, and provides a web interface to view historical performance graphs and export reports.
 
-
-
-
-
 ---
 ## Features ✨
 
-* **Web-Based Dashboard:** A clean, centralized dashboard to view the latest status for all monitored firewalls, including their **hostname**, **model**, status, CPU/DP load, and aggregate throughput.
+* **Web-Based Dashboard:** A clean, centralized dashboard to view the latest status for all monitored firewalls, including their **hostname**, **model**, **PAN-OS version**, status, CPU/DP load, and aggregate throughput.
+* **Capacity Dashboard:** Provides an at-a-glance view of current object usage (rules, routes, tunnels, etc.) against the device's maximum capacity, with color-coded utilization percentages to highlight potential issues.
 * **Historical Graphing:** Click on any firewall to view detailed historical graphs for its key performance metrics.
 * **Selectable Timeframes:** View graphs and summary data for various timeframes, from the last 5 minutes to the last 30 days.
+* **Detailed Device Specifications:** Automatically polls and displays a comprehensive list of over 35 detailed capacity limits (max sessions, max rules, max tunnels, etc.) for each firewall.
 * **Upgrade Advisor:** Analyzes peak usage against known model specifications and recommends a hardware upgrade if utilization exceeds an 80% threshold.
 * **Peak Statistics Summary:** View a table of peak values (max sessions, highest throughput, max CPU/DP load) for each firewall over your selected timeframe.
 * **Flexible Exporting:** Export peak statistics to CSV, or generate PDF reports in multiple formats: Graphs Only, Table Only, or a Combined report.
 * **CPU & Dataplane Monitoring:** Tracks the load average for both the management plane (peak core) and data plane (average of all cores).
-* **Automatic Discovery:** Automatically discovers and saves the **hostname** and **model** for newly added firewalls.
+* **Intelligent Discovery & Polling:**
+    * Automatically discovers and saves the **hostname**, **model**, and **PAN-OS version** for newly added firewalls.
+    * Intelligently uses the correct API commands to get route counts based on whether a firewall has the advanced routing engine enabled.
+    * Efficiently polls for static capacity data only when needed or when manually triggered.
 * **Panorama Integration:** Import all connected firewalls directly from your Panorama instance with a single click.
 * **Dynamic Model Management:** Add, view, and delete firewall hardware specifications directly from the web interface, without editing any files.
 * **Multi-Firewall Support:** Monitor dozens of firewalls. Firewalls can be added individually or bulk-imported from a text file.

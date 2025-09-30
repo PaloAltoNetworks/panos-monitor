@@ -25,10 +25,10 @@
         }
 
         /* Make buttons inside tables smaller for more compact rows */
-        td form button {
+        td form button,
+        td a[role="button"] {
             font-size: 0.75rem;
-            padding-top: 0;
-            padding-bottom: 0;
+            padding: 0.25rem 0.5rem;
         }
 
         /* Create a scrollable container for tables */
@@ -59,10 +59,21 @@
                 <li><a href="{{ url_for('manage_firewalls') }}">Manage Firewalls</a></li>
                 <li><a href="{{ url_for('manage_models') }}">Manage Models</a></li>
                 <li><a href="{{ url_for('advisor') }}">Upgrade Advisor</a></li>
+                <li><a href="{{ url_for('capacity_dashboard') }}">Capacity</a></li>
                 <li><a href="{{ url_for('settings') }}" role="button" class="secondary">Settings</a></li>
             </ul>
         </nav>
         
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <article class="flash-{{ category }}">
+                        {{ message }}
+                    </article>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
         {% block content %}{% endblock %}
         
     </main>

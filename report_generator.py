@@ -9,6 +9,9 @@ import matplotlib.pyplot as plt # Keep this import
 # Use a backend that doesn't require a GUI
 matplotlib.use('Agg')
 
+# --- NEW: Import the centralized data fetching function from app.py ---
+from app import get_firewall_stats_for_timespan as _fetch_and_process_data
+
 # --- NEW: Remove import from pa_models.py ---
 # from pa_models import SPECS_MAP
 
@@ -19,53 +22,6 @@ def load_specs_from_db(conn):
     """Loads all model specifications from the database into a dictionary."""
     models = conn.execute("SELECT * FROM firewall_models").fetchall()
     return {m['model']: dict(m) for m in models}
-
-def _fetch_and_process_data(conn, fw_id, timespan):
-    """
-    A centralized helper function to fetch and process firewall stats for a given timeframe.
-    This function consistently uses MAX() for summarized reports to show peak values.
-    """
-    is_summarized = timespan in ['24h', '7d', '30d']
-    
-    if is_summarized:
-        if timespan == '7d':
-            time_modifier, date_format_sql, date_format_py, title_prefix = '-7 days', '%Y-%m-%d', '%Y-%m-%d', "Daily Peak"
-        elif timespan == '30d':
-            time_modifier, date_format_sql, date_format_py, title_prefix = '-30 days', '%Y-%m-%d', '%Y-%m-%d', "Daily Peak"
-        else: # 24h
-            time_modifier, date_format_sql, date_format_py, title_prefix = '-24 hours', '%Y-%m-%d %H:00', '%Y-%m-%d %H:%M', "Hourly Peak"
-    else: # Raw data reports
-        if timespan == '1h':
-            time_modifier, title_prefix = '-1 hour', "Raw Data"
-        elif timespan == '6h':
-            time_modifier, title_prefix = '-6 hours', "Raw Data"
-        else: # 5m
-            time_modifier, title_prefix = '-5 minutes', "Raw Data"
-    
-    if is_summarized:
-        query = f"SELECT strftime('{date_format_sql}', timestamp) as period, MAX(active_sessions) as sessions, MAX(total_input_bps) as input_bps, MAX(total_output_bps) as output_bps, MAX(cpu_load) as cpu, MAX(dataplane_load) as dp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}') GROUP BY period ORDER BY period ASC;"
-    else: # Raw data query
-        query = f"SELECT timestamp, active_sessions as sessions, total_input_bps as input_bps, total_output_bps as output_bps, cpu_load as cpu, dataplane_load as dp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}') ORDER BY timestamp ASC;"
-    
-    stats_charts = conn.execute(query, (fw_id,)).fetchall()
-
-    if not stats_charts:
-        return None
-
-    if is_summarized:
-        labels = [datetime.strptime(s['period'], date_format_py).strftime(date_format_py) for s in stats_charts]
-    else:
-        labels = [datetime.strptime(s['timestamp'], '%Y-%m-%d %H:%M:%S.%f').strftime('%H:%M:%S') for s in stats_charts]
-
-    return {
-        "labels": labels,
-        "session_data": [s['sessions'] for s in stats_charts],
-        "input_data_mbps": [s['input_bps'] / 1000000 for s in stats_charts],
-        "output_data_mbps": [s['output_bps'] / 1000000 for s in stats_charts],
-        "cpu_data": [s['cpu'] for s in stats_charts],
-        "dataplane_data": [s['dp'] for s in stats_charts],
-        "title_prefix": title_prefix
-    }
 
 def create_chart_image(labels, datasets, title, y_label):
     fig, ax = plt.subplots(figsize=(10, 4))

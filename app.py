@@ -40,6 +40,9 @@ def decrypt_message(encrypted_message, key):
 app = flask.Flask(__name__)
 app.secret_key = os.urandom(24) 
 
+# --- NEW: Global lock for thread-safe database writes ---
+db_lock = threading.Lock()
+
 # --- Database Functions ---
 def get_db_connection():
     conn = sqlite3.connect(DB_FILE, check_same_thread=False)
@@ -64,6 +67,103 @@ def init_db():
         conn.execute("ALTER TABLE firewalls ADD COLUMN model TEXT;")
     if 'hostname' not in columns:
         conn.execute("ALTER TABLE firewalls ADD COLUMN hostname TEXT;")
+    if 'sw_version' not in columns:
+        conn.execute("ALTER TABLE firewalls ADD COLUMN sw_version TEXT;")
+
+    # ** NEW: Table for detailed firewall specifications/capacities **
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS firewall_details (
+            firewall_id INTEGER PRIMARY KEY,
+            max_sessions INTEGER,
+            max_rules INTEGER,
+            max_nat_rules INTEGER, 
+            max_ssl_decrypt_rules INTEGER,
+            max_qos_rules INTEGER,
+            max_pbf_rules INTEGER,
+            max_dos_rules INTEGER,
+            max_zones INTEGER,
+            max_vsys INTEGER,
+            max_virtual_routers INTEGER,
+            max_vlans INTEGER,
+            max_ike_peers INTEGER,
+            max_ipsec_tunnels INTEGER,
+            max_ssl_tunnels INTEGER, 
+            advance_routing_enabled BOOLEAN,
+            max_addr_per_group INTEGER,
+            max_cert_cache INTEGER,
+            max_dns_cache INTEGER,
+            max_ipv6_addrs INTEGER,
+            max_mac_addrs INTEGER,
+            max_security_profiles INTEGER,
+            max_url_patterns INTEGER, 
+            max_vwires INTEGER,
+            max_hip_objects INTEGER,
+            max_custom_signatures INTEGER,
+            max_interfaces INTEGER,
+            max_bfd_sessions INTEGER,
+            max_sdwan_rules INTEGER,
+            max_mroutes INTEGER, 
+            max_schedules INTEGER,
+            max_edl_objects INTEGER,
+            max_registered_ips INTEGER,
+            max_ts_agents INTEGER,
+            max_proxy_sessions INTEGER,
+            max_auth_rules INTEGER, 
+            max_address_objects INTEGER,
+            max_address_groups INTEGER,
+            max_service_objects INTEGER,
+            max_service_groups INTEGER,
+            max_routes INTEGER,
+            max_arp_entries INTEGER,
+            FOREIGN KEY (firewall_id) REFERENCES firewalls (id) ON DELETE CASCADE);
+    ''')
+
+    # ** NEW: Table for current firewall object usage/counts **
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS firewall_current_usage (
+            firewall_id INTEGER PRIMARY KEY,
+            last_updated TIMESTAMP,
+            current_rules INTEGER,
+            current_nat_rules INTEGER,
+            current_address_objects INTEGER,
+            current_service_objects INTEGER,
+            current_ipsec_tunnels INTEGER,
+            current_routes INTEGER,
+            current_mroutes INTEGER,
+            current_arp_entries INTEGER,
+            current_bfd_sessions INTEGER,
+            current_dns_cache INTEGER,
+            current_registered_ips INTEGER,
+            FOREIGN KEY (firewall_id) REFERENCES firewalls (id) ON DELETE CASCADE
+        );
+    ''')
+
+    # ** FIX: Add missing columns to firewall_current_usage table for existing databases **
+    cursor.execute("PRAGMA table_info(firewall_current_usage)")
+    usage_columns = {row['name'] for row in cursor.fetchall()}
+    required_usage_columns = {
+        'current_routes': 'INTEGER',
+        'current_mroutes': 'INTEGER',
+        'current_arp_entries': 'INTEGER',
+        'current_bfd_sessions': 'INTEGER',
+        'current_dns_cache': 'INTEGER',
+        'current_registered_ips': 'INTEGER'
+    }
+    for col, col_type in required_usage_columns.items():
+        if col not in usage_columns:
+            print(f"Database schema outdated. Adding column '{col}' to 'firewall_current_usage' table...")
+            conn.execute(f"ALTER TABLE firewall_current_usage ADD COLUMN {col} {col_type};")
+
+    # ** FIX: Add missing columns to firewall_details table for existing databases **
+    cursor.execute("PRAGMA table_info(firewall_details)")
+    details_columns = {row['name'] for row in cursor.fetchall()}
+    required_details_columns = {
+        'advance_routing_enabled': 'BOOLEAN'
+    }
+    for col, col_type in required_details_columns.items():
+        if col not in details_columns:
+            print(f"Database schema outdated. Adding column '{col}' to 'firewall_details' table...")
+            conn.execute(f"ALTER TABLE firewall_details ADD COLUMN {col} {col_type};")
 
     # ** NEW: One-time data seeding from pa_models.py to the database **
     seed_firewall_models(conn)
@@ -371,13 +471,16 @@ def firewall_detail(fw_id):
     specs_map = load_specs_from_db(conn)
     generation = specs_map.get(model, {}).get('generation', 'N/A')
 
+    # ** NEW: Fetch detailed specs and pass them to the template **
+    details = conn.execute('SELECT * FROM firewall_details WHERE firewall_id = ?', (fw_id,)).fetchone()
+
     chart_data = get_firewall_stats_for_timespan(conn, fw_id, timespan)
     summary_stats = None
     if chart_data:
-        time_modifier = {'1h': '-1 hour', '6h': '-6 hours', '24h': '-24 hours', '7d': '-7 days', '30d': '-30 days'}.get(timespan, '-5 minutes')
+        time_modifier = {'5m': '-5 minutes', '1h': '-1 hour', '6h': '-6 hours', '24h': '-24 hours', '7d': '-7 days', '30d': '-30 days'}.get(timespan, '-1 hour')
         query_summary = f"SELECT MAX(active_sessions) as max_sessions, MAX(total_input_bps) as max_input, MAX(total_output_bps) as max_output, MAX(cpu_load) as max_cpu, MAX(dataplane_load) as max_dp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}');"
         summary_stats = conn.execute(query_summary, (fw_id,)).fetchone()
-    full_data = {"chart_data": chart_data, "summary_data": dict(summary_stats) if summary_stats else None}
+    full_data = {"chart_data": chart_data, "summary_data": dict(summary_stats) if summary_stats else None, "details": dict(details) if details else {}}
     conn.close()
 
     return flask.render_template(
@@ -398,6 +501,46 @@ def manage_firewalls():
     firewalls = conn.execute('SELECT * FROM firewalls ORDER BY ip_address').fetchall()
     conn.close()
     return flask.render_template('firewalls.html', firewalls=firewalls)
+
+@app.route('/capacity')
+def capacity_dashboard():
+    """Renders the new Capacity Dashboard page."""
+    conn = get_db_connection()
+    query = """
+        SELECT
+            f.id, f.hostname, f.ip_address, f.model,
+            f.sw_version, d.max_rules, d.max_nat_rules, d.max_address_objects, d.max_service_objects, d.max_ipsec_tunnels, d.max_routes, d.max_mroutes, d.max_arp_entries, d.max_bfd_sessions, d.max_dns_cache, d.max_registered_ips,
+            u.current_rules, u.current_nat_rules, u.current_address_objects, u.current_service_objects, u.current_ipsec_tunnels, u.last_updated, u.current_routes, u.current_registered_ips,
+            u.current_mroutes, u.current_arp_entries, u.current_bfd_sessions, u.current_dns_cache
+        FROM
+            firewalls f
+        LEFT JOIN
+            firewall_details d ON f.id = d.firewall_id
+        LEFT JOIN
+            firewall_current_usage u ON f.id = u.firewall_id
+        ORDER BY
+            f.hostname, f.ip_address;
+    """
+    firewalls_data = conn.execute(query).fetchall()
+    conn.close()
+
+    # Calculate utilization percentages
+    results = []
+    for fw in firewalls_data:
+        fw_dict = dict(fw)
+        fw_dict['util_rules'] = (fw['current_rules'] / fw['max_rules'] * 100) if fw['current_rules'] is not None and fw['max_rules'] else 0
+        fw_dict['util_nat_rules'] = (fw['current_nat_rules'] / fw['max_nat_rules'] * 100) if fw['current_nat_rules'] is not None and fw['max_nat_rules'] else 0
+        fw_dict['util_address'] = (fw['current_address_objects'] / fw['max_address_objects'] * 100) if fw['current_address_objects'] is not None and fw['max_address_objects'] else 0
+        fw_dict['util_service'] = (fw['current_service_objects'] / fw['max_service_objects'] * 100) if fw['current_service_objects'] is not None and fw['max_service_objects'] else 0
+        fw_dict['util_ipsec'] = (fw['current_ipsec_tunnels'] / fw['max_ipsec_tunnels'] * 100) if fw['current_ipsec_tunnels'] is not None and fw['max_ipsec_tunnels'] else 0
+        fw_dict['util_routes'] = (fw['current_routes'] / fw['max_routes'] * 100) if fw['current_routes'] is not None and fw['max_routes'] else 0
+        fw_dict['util_mroutes'] = (fw['current_mroutes'] / fw['max_mroutes'] * 100) if fw['current_mroutes'] is not None and fw['max_mroutes'] else 0
+        fw_dict['util_arp'] = (fw['current_arp_entries'] / fw['max_arp_entries'] * 100) if fw['current_arp_entries'] is not None and fw['max_arp_entries'] else 0
+        fw_dict['util_bfd'] = (fw['current_bfd_sessions'] / fw['max_bfd_sessions'] * 100) if fw['current_bfd_sessions'] is not None and fw['max_bfd_sessions'] else 0
+        fw_dict['util_dns_cache'] = (fw['current_dns_cache'] / fw['max_dns_cache'] * 100) if fw['current_dns_cache'] is not None and fw['max_dns_cache'] else 0
+        fw_dict['util_registered_ips'] = (fw['current_registered_ips'] / fw['max_registered_ips'] * 100) if fw['current_registered_ips'] is not None and fw['max_registered_ips'] else 0
+        results.append(fw_dict)
+    return flask.render_template('capacity.html', firewalls=results)
 
 @app.route('/add_firewall', methods=['POST'])
 def add_firewall():
@@ -527,6 +670,236 @@ def delete_model():
     flask.flash(f"Model '{flask.request.form['model']}' deleted successfully.", "success")
     return flask.redirect(flask.url_for('manage_models'))
 
+@app.route('/refresh_specs', methods=['POST'])
+def refresh_specs():
+    """Manually triggers a refresh of the detailed capacity specs for all firewalls."""
+    print("Manual spec refresh triggered.")
+    key = load_key()
+    conn = get_db_connection()
+    settings_rows = conn.execute("SELECT key, value FROM settings").fetchall()
+    settings = {row['key']: row['value'] for row in settings_rows}
+    fw_user = settings.get('FW_USER')
+    encrypted_pass = settings.get('FW_PASSWORD')
+
+    if not fw_user or not encrypted_pass:
+        flask.flash("Cannot refresh specs. Firewall credentials are not set in Settings.", "error")
+        conn.close()
+        return flask.redirect(flask.url_for('manage_firewalls'))
+
+    fw_password = decrypt_message(encrypted_pass, key)
+    firewalls = conn.execute('SELECT id, ip_address FROM firewalls').fetchall()
+    
+    if not firewalls:
+        flask.flash("No firewalls to refresh.", "info")
+        conn.close()
+        return flask.redirect(flask.url_for('manage_firewalls'))
+
+    # Get API keys for all firewalls
+    hosts_to_poll = [fw['ip_address'] for fw in firewalls]
+    init_tasks = [(host, fw_user, fw_password) for host in hosts_to_poll]
+    api_keys = {}
+    try:
+        with multiprocessing.Pool(processes=len(init_tasks)) as pool:
+            for res in pool.map(get_api_key, init_tasks):
+                if res['status'] == 'success':
+                    api_keys[res['host']] = res['api_key']
+    except Exception as e:
+        flask.flash(f"An error occurred while getting API keys: {e}", "error")
+        conn.close()
+        return flask.redirect(flask.url_for('manage_firewalls'))
+
+    # ** FIX: Use a lock for thread-safe database access **
+    with db_lock:
+        print("Acquired lock for manual spec refresh.")
+        # Re-poll specs for all firewalls that we have a key for
+        refreshed_count = 0
+        for fw in firewalls:
+            if fw['ip_address'] in api_keys:
+                parse_and_store_fw_details(conn, fw['id'], api_keys[fw['ip_address']])
+                refreshed_count += 1
+        conn.commit()
+    print("Released lock for manual spec refresh.")
+
+    flask.flash(f"Successfully refreshed detailed specs for {refreshed_count} firewalls.", "success")
+    return flask.redirect(flask.url_for('manage_firewalls'))
+
+@app.route('/refresh_capacity', methods=['POST'])
+def refresh_capacity():
+    """Manually triggers a refresh of the current object usage for all firewalls."""
+    print("Manual capacity usage refresh triggered.")
+    key = load_key()
+    conn = get_db_connection()
+    settings_rows = conn.execute("SELECT key, value FROM settings").fetchall()
+    settings = {row['key']: row['value'] for row in settings_rows}
+    fw_user = settings.get('FW_USER')
+    encrypted_pass = settings.get('FW_PASSWORD')
+
+    if not fw_user or not encrypted_pass:
+        flask.flash("Cannot refresh capacity. Firewall credentials are not set in Settings.", "error")
+        conn.close()
+        return flask.redirect(flask.url_for('capacity_dashboard'))
+
+    fw_password = decrypt_message(encrypted_pass, key)
+    firewalls = conn.execute('SELECT id, ip_address FROM firewalls').fetchall()
+    
+    if not firewalls:
+        flask.flash("No firewalls to refresh.", "info")
+        conn.close()
+        return flask.redirect(flask.url_for('capacity_dashboard'))
+
+    # Get API keys for all firewalls
+    hosts_to_poll = [fw['ip_address'] for fw in firewalls]
+    init_tasks = [(host, fw_user, fw_password) for host in hosts_to_poll]
+    api_keys = {}
+    try:
+        with multiprocessing.Pool(processes=len(init_tasks)) as pool:
+            for res in pool.map(get_api_key, init_tasks):
+                if res['status'] == 'success':
+                    api_keys[res['host']] = res['api_key']
+    except Exception as e:
+        flask.flash(f"An error occurred while getting API keys: {e}", "error")
+        conn.close()
+        return flask.redirect(flask.url_for('capacity_dashboard'))
+
+    # Poll for current usage and store it
+    refreshed_count = 0
+    with db_lock:
+        for fw in firewalls:
+            if fw['ip_address'] in api_keys:
+                usage_data = poll_current_usage(conn, fw['id'], fw['ip_address'], api_keys[fw['ip_address']])
+                if usage_data:
+                    conn.execute("""
+                        INSERT OR REPLACE INTO firewall_current_usage 
+                        (firewall_id, last_updated, current_rules, current_nat_rules, current_address_objects, current_service_objects, current_ipsec_tunnels, current_routes, current_mroutes, current_arp_entries, current_bfd_sessions, current_dns_cache, current_registered_ips) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
+                    """, (fw['id'], datetime.now().isoformat(sep=' ', timespec='microseconds'), usage_data.get('rules'), usage_data.get('nat-rules'), usage_data.get('address'), usage_data.get('service'), usage_data.get('ipsec'), usage_data.get('routes', 0), usage_data.get('mroutes'), usage_data.get('arp'), usage_data.get('bfd'), usage_data.get('dns_cache'), usage_data.get('registered_ips'))) 
+                    refreshed_count += 1
+        conn.commit()
+
+    flask.flash(f"Successfully refreshed capacity usage for {refreshed_count} firewalls.", "success")
+    return flask.redirect(flask.url_for('capacity_dashboard'))
+
+def poll_current_usage(conn, firewall_id, host, api_key):
+    """Polls a single firewall for its current object counts."""
+    commands = {
+        'config': {
+            'rules': "/config/devices/entry[@name='localhost.localdomain']/vsys/entry/rulebase/security/rules",
+            'nat-rules': "/config/devices/entry[@name='localhost.localdomain']/vsys/entry/rulebase/nat/rules",
+            'address': "/config/devices/entry[@name='localhost.localdomain']/vsys/entry/address",
+            'service': "/config/devices/entry[@name='localhost.localdomain']/vsys/entry/service",
+            'ipsec': "/config/devices/entry[@name='localhost.localdomain']/network/tunnel/ipsec"
+        },
+        'op': {
+            'arp': ("<show><arp><entry name='all'/></arp></show>", './/entries/entry'),
+            'bfd': ("<show><bfd><session><entry name='all'/></session></bfd></show>", './/result/entry'),
+            'dns_cache': ("<show><dns-proxy><cache><all/></cache></dns-proxy></show>", './/entry'),
+            'registered_ips': ("<show><user><ip-user-mapping><all></all></ip-user-mapping></user></show>", './/entry')
+        }
+    }
+    usage_data = {}
+    # Poll config-based stats
+    for key, xpath in commands['config'].items():
+        try:
+            params = {'type': 'config', 'action': 'get', 'key': api_key, 'xpath': xpath}
+            response = requests.get(f"https://{host}/api/", params=params, verify=False, timeout=10)
+            response.raise_for_status()
+            root = ET.fromstring(response.content)
+            entries = root.findall('.//entry')
+            usage_data[key] = len(entries)
+        except Exception as e:
+            print(f"Error polling config stat '{key}' for {host}: {e}")
+            usage_data[key] = None # Mark as None on error
+
+    # ** NEW: Conditional route polling **
+    try:
+        adv_routing_row = conn.execute("SELECT advance_routing_enabled FROM firewall_details WHERE firewall_id = ?", (firewall_id,)).fetchone()
+        adv_routing_enabled = adv_routing_row['advance_routing_enabled'] if adv_routing_row else False
+
+        if adv_routing_enabled:
+            # Use advanced routing command
+            cmd = '<show><advanced-routing><route></route></advanced-routing></show>'
+            params = {'type': 'op', 'cmd': cmd, 'key': api_key}
+            response = requests.get(f"https://{host}/api/", params=params, verify=False, timeout=15)
+            response.raise_for_status()
+            root = ET.fromstring(response.content)
+            json_text = root.findtext('.//result/json')
+            if json_text:
+                import json
+                route_data = json.loads(json_text)
+                total_routes = sum(len(route_list) for vrf in route_data.values() for route_list in vrf.values())
+                usage_data['routes'] = total_routes
+        else:
+            # Use standard routing command
+            cmd = '<show><routing><route></route></routing></show>'
+            params = {'type': 'op', 'cmd': cmd, 'key': api_key}
+            response = requests.get(f"https://{host}/api/", params=params, verify=False, timeout=15)
+            response.raise_for_status()
+            root = ET.fromstring(response.content)
+            usage_data['routes'] = len(root.findall('.//routing-table/ip/entry'))
+    except Exception as e:
+        print(f"Error polling route stat for {host}: {e}")
+        usage_data['routes'] = None
+
+    # ** NEW: Conditional multicast route polling **
+    try:
+        # We can reuse the adv_routing_enabled flag from the previous check
+        if adv_routing_enabled:
+            # Use advanced routing command for multicast
+            cmd = '<show><advanced-routing><multicast><route></route></multicast></advanced-routing></show>'
+            params = {'type': 'op', 'cmd': cmd, 'key': api_key}
+            response = requests.get(f"https://{host}/api/", params=params, verify=False, timeout=15)
+            response.raise_for_status()
+            root = ET.fromstring(response.content)
+            json_text = root.findtext('.//result/json')
+            if json_text:
+                import json
+                mroute_data = json.loads(json_text)
+                # The structure is likely similar to unicast, so we sum the lengths of the route lists
+                total_mroutes = sum(len(route_list) for vrf in mroute_data.values() for route_list in vrf.values())
+                usage_data['mroutes'] = total_mroutes
+        else:
+            # Use standard multicast routing command
+            cmd = '<show><routing><multicast><route/></multicast></routing></show>'
+            params = {'type': 'op', 'cmd': cmd, 'key': api_key}
+            response = requests.get(f"https://{host}/api/", params=params, verify=False, timeout=15)
+            response.raise_for_status()
+            root = ET.fromstring(response.content)
+            # This command returns a CDATA block, so we count the lines.
+            cdata_text = root.findtext('.//result')
+            # Subtract 1 for the "Flags:" header line.
+            usage_data['mroutes'] = max(0, len(cdata_text.strip().split('\n')) - 1) if cdata_text else 0
+    except Exception as e:
+        print(f"Error polling multicast route stat for {host}: {e}")
+        usage_data['mroutes'] = None
+    
+    # Poll op-based stats
+    for key, (cmd, find_path) in commands['op'].items():
+        try:
+            params = {'type': 'op', 'cmd': cmd, 'key': api_key}
+            if key == 'dns_cache':
+                # Special handling for DNS cache command which returns text
+                response = requests.get(f"https://{host}/api/", params=params, verify=False, timeout=15)
+                response.raise_for_status()
+                root = ET.fromstring(response.content)
+                total_dns_entries = 0
+                # The result is a series of <msg> tags, not structured XML entries
+                for msg_tag in root.findall('.//result/msg'):
+                    if msg_tag.text and msg_tag.text.strip().startswith('entries:'):
+                        parts = msg_tag.text.strip().split(':')
+                        if len(parts) > 1 and parts[1].strip().isdigit():
+                            total_dns_entries += int(parts[1].strip())
+                usage_data[key] = total_dns_entries
+            else:
+                response = requests.get(f"https://{host}/api/", params=params, verify=False, timeout=15)
+                response.raise_for_status()
+                root = ET.fromstring(response.content)
+                entries = root.findall(find_path)
+                usage_data[key] = len(entries)
+        except Exception as e:
+            print(f"Error polling op stat '{key}' for {host}: {e}")
+            usage_data[key] = None
+    return usage_data
+
 # --- Background Polling Logic ---
 def get_api_key(args):
     host, user, password = args
@@ -543,6 +916,86 @@ def get_api_key(args):
             return {'status': 'error', 'host': host, 'error_message': error_msg}
     except requests.exceptions.RequestException as e:
         return {'status': 'error', 'host': host, 'error_message': str(e)}
+
+def parse_and_store_fw_details(conn, firewall_id, api_key):
+    """Fetches, parses, and stores detailed firewall capacity specs."""
+    host = conn.execute('SELECT ip_address FROM firewalls WHERE id = ?', (firewall_id,)).fetchone()['ip_address']
+    cmd = "<show><system><state><filter>cfg.general.*</filter></state></system></show>"
+    try:
+        response = requests.get(f"https://{host}/api/?type=op&cmd={cmd}&key={api_key}", verify=False, timeout=15)
+        response.raise_for_status()
+        root = ET.fromstring(response.content)
+        cdata = root.find('.//result').text
+
+        if not cdata: return
+
+        # Map raw config names to database column names
+        spec_map = {
+            'cfg.general.max-session': 'max_sessions',
+            'cfg.general.max-policy-rule': 'max_rules',
+            'cfg.general.max-nat-policy-rule': 'max_nat_rules',
+            'cfg.general.max-ssl-policy-rule': 'max_ssl_decrypt_rules',
+            'cfg.general.max-qos-policy-rule': 'max_qos_rules',
+            'cfg.general.max-pbf-policy-rule': 'max_pbf_rules',
+            'cfg.general.max-dos-policy-rule': 'max_dos_rules',
+            'cfg.general.max-zone': 'max_zones',
+            'cfg.general.max-vsys': 'max_vsys',
+            'cfg.general.max-vrouter': 'max_virtual_routers',
+            'cfg.general.max-vlan': 'max_vlans',
+            'cfg.general.max-ike-peers': 'max_ike_peers',
+            'cfg.general.max-tunnel': 'max_ipsec_tunnels',
+            'cfg.general.advance-routing-enabled': 'advance_routing_enabled',
+            'cfg.general.max-ssl-tunnel': 'max_ssl_tunnels',
+            'cfg.general.max-address-per-group': 'max_addr_per_group',
+            'cfg.general.max-cert-cache-entries': 'max_cert_cache',
+            'cfg.general.max-dns-cache': 'max_dns_cache',
+            'cfg.general.max-ip6addrtbl': 'max_ipv6_addrs',
+            'cfg.general.max-mac': 'max_mac_addrs',
+            'cfg.general.max-profile': 'max_security_profiles',
+            'cfg.general.max-url-pattern': 'max_url_patterns',
+            'cfg.general.max-vwire': 'max_vwires',
+            'cfg.general.max-hip': 'max_hip_objects',
+            'cfg.general.max-blacklist': 'max_custom_signatures',
+            'cfg.general.max-ifnet': 'max_interfaces',
+            'cfg.general.max-bfd-session': 'max_bfd_sessions',
+            'cfg.general.max-sdwan-policy-rule': 'max_sdwan_rules',
+            'cfg.general.max-mroute': 'max_mroutes',
+            'cfg.general.max-schedule': 'max_schedules',
+            'cfg.general.max-edl-objs': 'max_edl_objects',
+            'cfg.general.max-registered-ip-address': 'max_registered_ips',
+            'cfg.general.max-tsagents': 'max_ts_agents',
+            'cfg.general.max-proxy-session': 'max_proxy_sessions',
+            'cfg.general.max-auth-policy-rule': 'max_auth_rules',
+            'cfg.general.max-address': 'max_address_objects',
+            'cfg.general.max-address-group': 'max_address_groups',
+            'cfg.general.max-service': 'max_service_objects',
+            'cfg.general.max-service-group': 'max_service_groups',
+            'cfg.general.max-route': 'max_routes',
+            'cfg.general.max-arp': 'max_arp_entries'
+        }
+        
+        parsed_data = {}
+        for line in cdata.strip().split('\n'):
+            key, value = line.split(':', 1)
+            key = key.strip()
+            if key in spec_map:
+                db_column = spec_map[key]
+                val_str = value.strip()
+                try:
+                    if val_str.lower() == 'true':
+                        parsed_data[db_column] = 1
+                    elif val_str.lower() == 'false':
+                        parsed_data[db_column] = 0
+                    else:
+                        parsed_data[db_column] = int(val_str, 16) if val_str.startswith('0x') else int(val_str)
+                except (ValueError, TypeError):
+                    pass # Ignore values that can't be converted to an integer (like 'True' or lists)
+
+        if parsed_data:
+            columns, values = zip(*parsed_data.items())
+            conn.execute(f"INSERT OR REPLACE INTO firewall_details (firewall_id, {', '.join(columns)}) VALUES (?, {', '.join(['?'] * len(values))})", (firewall_id, *values))
+    except Exception as e:
+        print(f"Could not fetch/parse details for {host}: {e}")
 
 def poll_single_firewall(args):
     """Worker function to poll metrics from a single firewall."""
@@ -630,7 +1083,7 @@ def background_worker_loop():
             continue
             
         fw_password = decrypt_message(encrypted_pass, key)
-        firewalls = conn.execute('SELECT id, ip_address, hostname, model FROM firewalls').fetchall()
+        firewalls = conn.execute('SELECT id, ip_address, hostname, model, sw_version FROM firewalls').fetchall()
         hosts_to_poll = [fw['ip_address'] for fw in firewalls]
 
         if not hosts_to_poll:
@@ -654,10 +1107,10 @@ def background_worker_loop():
             continue
         
         # ** NEW, ROBUST MODEL DISCOVERY LOGIC **
-        # For any firewall that has an API key but no model or hostname, get the info.
-        firewalls_to_update = [fw for fw in firewalls if fw['ip_address'] in api_keys and (not fw['model'] or not fw['hostname'])]
+        # For any firewall that has an API key but no model, hostname, or sw_version, get the info.
+        firewalls_to_update = [fw for fw in firewalls if fw['ip_address'] in api_keys and (not fw['model'] or not fw['hostname'] or not fw['sw_version'])]
         if firewalls_to_update:
-            print(f"Found {len(firewalls_to_update)} firewalls with unknown models/hostnames. Discovering...")
+            print(f"Found {len(firewalls_to_update)} firewalls with missing details. Discovering...")
             for fw in firewalls_to_update:
                 try:
                     api_key = api_keys[fw['ip_address']]
@@ -665,12 +1118,24 @@ def background_worker_loop():
                     root = ET.fromstring(sys_info_xml)
                     model = root.findtext('.//model')
                     hostname = root.findtext('.//hostname')
-                    if model and hostname:
-                        conn.execute('UPDATE firewalls SET model = ?, hostname = ? WHERE id = ?', (model, hostname, fw['id']))
-                        print(f"Discovered and saved model '{model}' and hostname '{hostname}' for {fw['ip_address']}.")
+                    sw_version = root.findtext('.//sw-version')
+                    if model and hostname and sw_version:
+                        conn.execute('UPDATE firewalls SET model = ?, hostname = ?, sw_version = ? WHERE id = ?', (model, hostname, sw_version, fw['id']))
+                        print(f"Discovered and saved model '{model}', hostname '{hostname}', and version '{sw_version}' for {fw['ip_address']}.")
                 except Exception as e:
                     print(f"Could not discover model/hostname for {fw['ip_address']}: {e}")
             conn.commit()
+
+        # ** CHANGE: Only fetch detailed specs for firewalls that are missing them. **
+        details_query = "SELECT firewall_id FROM firewall_details"
+        fws_with_details = {row['firewall_id'] for row in conn.execute(details_query).fetchall()}
+        firewalls_needing_details = [fw for fw in firewalls if fw['ip_address'] in api_keys and fw['id'] not in fws_with_details]
+        if firewalls_needing_details:
+            print(f"Found {len(firewalls_needing_details)} firewalls missing detailed specs. Fetching...")
+            with db_lock:
+                for fw in firewalls_needing_details:
+                    parse_and_store_fw_details(conn, fw['id'], api_keys[fw['ip_address']])
+                conn.commit()
         
         # --- POLLING ---
         if not api_keys:
@@ -686,22 +1151,24 @@ def background_worker_loop():
         # --- SAVE RESULTS ---
         # Explicitly format the datetime object to a string to avoid DeprecationWarning in Python 3.12+
         timestamp_now_str = datetime.now().isoformat(sep=' ', timespec='microseconds')
-        for res in results:
-            host = res['host']
-            firewall_id = next((fw['id'] for fw in firewalls if fw['ip_address'] == host), None)
-            if not firewall_id: continue
-            
-            conn.execute('UPDATE firewalls SET last_checked = ?, status = ? WHERE id = ?', (timestamp_now_str, res['status'], firewall_id))
-            if res['status'] == 'success':
-                firewall_states[host] = res['new_state']
-                s = res['data']
-                if s['total_input_bps'] > 0 or s['total_output_bps'] > 0 or s['active_sessions'] > 0:
-                    conn.execute(
-                        'INSERT INTO stats (firewall_id, timestamp, active_sessions, total_input_bps, total_output_bps, cpu_load, dataplane_load) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                        (firewall_id, timestamp_now_str, s['active_sessions'], s['total_input_bps'], s['total_output_bps'], s['cpu_load'], s['dataplane_load'])
-                    )
-        
-        conn.commit()
+        # ** FIX: Use a lock for thread-safe database access **
+        with db_lock:
+            for res in results:
+                host = res['host']
+                firewall_id = next((fw['id'] for fw in firewalls if fw['ip_address'] == host), None)
+                if not firewall_id: continue
+                
+                conn.execute('UPDATE firewalls SET last_checked = ?, status = ? WHERE id = ?', (timestamp_now_str, res['status'], firewall_id))
+                if res['status'] == 'success':
+                    firewall_states[host] = res['new_state']
+                    s = res['data']
+                    if s['total_input_bps'] > 0 or s['total_output_bps'] > 0 or s['active_sessions'] > 0:
+                        conn.execute(
+                            'INSERT INTO stats (firewall_id, timestamp, active_sessions, total_input_bps, total_output_bps, cpu_load, dataplane_load) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                            (firewall_id, timestamp_now_str, s['active_sessions'], s['total_input_bps'], s['total_output_bps'], s['cpu_load'], s['dataplane_load'])
+                        )
+            conn.commit()
+
         conn.close()
         print(f"Polling cycle finished. Sleeping for {poll_interval} seconds.")
         time.sleep(poll_interval)

@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+<style>
+  main.container {
+    max-width: 1600px;
+  }
+</style>
+
+<h2>Capacity Dashboard</h2>
+
+<article>
+    <p>This dashboard shows the current count of configured objects against the device's maximum capacity. Data is updated when you click the refresh button.</p>
+    <div class="grid">
+        <form action="{{ url_for('refresh_capacity') }}" method="post" style="margin-bottom: 0;">
+            <button type="submit" class="contrast">Refresh Current Usage</button>
+        </form>
+        <form action="{{ url_for('refresh_specs') }}" method="post" style="margin-bottom: 0;">
+            <button type="submit" class="secondary">Refresh Max Specs</button>
+        </form>
+    </div>
+</article>
+
+{% for fw in firewalls %}
+<article>
+    <header>
+        <strong>
+        {% if fw.hostname %}
+            {{ fw.hostname }} <small>({{ fw.ip_address }})</small>
+        {% else %}
+            {{ fw.ip_address }}
+        {% endif %}
+        <br><small>PAN-OS: {{ fw.sw_version or 'Unknown' }}</small>
+        </strong>
+        <small style="float: right;">Last Updated: {{ fw.last_updated or 'Never' }}</small>
+    </header>
+    {% if fw.current_rules is not none %}
+    <table>
+        <thead>
+            <tr>
+                <th>Metric</th>
+                <th>Current Usage</th>
+                <th>Max Capacity</th>
+                <th>Utilization</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>Security Rules</td><td>{{ "{:,}".format(fw.current_rules) }}</td><td>{{ "{:,}".format(fw.max_rules) if fw.max_rules else 'N/A' }}</td><td {% if fw.util_rules >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_rules >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_rules) }}%</td></tr>
+            <tr><td>NAT Rules</td><td>{{ "{:,}".format(fw.current_nat_rules) }}</td><td>{{ "{:,}".format(fw.max_nat_rules) if fw.max_nat_rules else 'N/A' }}</td><td {% if fw.util_nat_rules >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_nat_rules >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_nat_rules) }}%</td></tr>
+            <tr><td>Address Objects</td><td>{{ "{:,}".format(fw.current_address_objects) }}</td><td>{{ "{:,}".format(fw.max_address_objects) if fw.max_address_objects else 'N/A' }}</td><td {% if fw.util_address >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_address >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_address) }}%</td></tr>
+            <tr><td>Service Objects</td><td>{{ "{:,}".format(fw.current_service_objects) }}</td><td>{{ "{:,}".format(fw.max_service_objects) if fw.max_service_objects else 'N/A' }}</td><td {% if fw.util_service >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_service >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_service) }}%</td></tr>
+            <tr><td>IPsec Tunnels</td><td>{{ "{:,}".format(fw.current_ipsec_tunnels) }}</td><td>{{ "{:,}".format(fw.max_ipsec_tunnels) if fw.max_ipsec_tunnels else 'N/A' }}</td><td {% if fw.util_ipsec >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_ipsec >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_ipsec) }}%</td></tr>
+            <tr><td>Routes</td><td>{% if fw.current_routes is not none %}{{ "{:,}".format(fw.current_routes) }}{% else %}N/A{% endif %}</td><td>{{ "{:,}".format(fw.max_routes) if fw.max_routes else 'N/A' }}</td><td {% if fw.util_routes >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_routes >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_routes) }}%</td></tr>
+            <tr><td>Multicast Routes</td><td>{% if fw.current_mroutes is not none %}{{ "{:,}".format(fw.current_mroutes) }}{% else %}N/A{% endif %}</td><td>{{ "{:,}".format(fw.max_mroutes) if fw.max_mroutes else 'N/A' }}</td><td {% if fw.util_mroutes >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_mroutes >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_mroutes) }}%</td></tr>
+            <tr><td>ARP Entries</td><td>{% if fw.current_arp_entries is not none %}{{ "{:,}".format(fw.current_arp_entries) }}{% else %}N/A{% endif %}</td><td>{{ "{:,}".format(fw.max_arp_entries) if fw.max_arp_entries else 'N/A' }}</td><td {% if fw.util_arp >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_arp >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_arp) }}%</td></tr>
+            <tr><td>BFD Sessions</td><td>{% if fw.current_bfd_sessions is not none %}{{ "{:,}".format(fw.current_bfd_sessions) }}{% else %}N/A{% endif %}</td><td>{{ "{:,}".format(fw.max_bfd_sessions) if fw.max_bfd_sessions else 'N/A' }}</td><td {% if fw.util_bfd >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_bfd >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_bfd) }}%</td></tr>
+            <tr><td>DNS Cache Entries</td><td>{% if fw.current_dns_cache is not none %}{{ "{:,}".format(fw.current_dns_cache) }}{% else %}N/A{% endif %}</td><td>{{ "{:,}".format(fw.max_dns_cache) if fw.max_dns_cache else 'N/A' }}</td><td {% if fw.util_dns_cache >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_dns_cache >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_dns_cache) }}%</td></tr>
+            <tr><td>Registered IPs (User-ID)</td><td>{% if fw.current_registered_ips is not none %}{{ "{:,}".format(fw.current_registered_ips) }}{% else %}N/A{% endif %}</td><td>{{ "{:,}".format(fw.max_registered_ips) if fw.max_registered_ips else 'N/A' }}</td><td {% if fw.util_registered_ips >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_registered_ips >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_registered_ips) }}%</td></tr>
+        </tbody>
+    </table>
+    {% else %}
+    <p>No capacity usage data has been collected for this firewall yet. Click the "Refresh Capacity Data" button above to poll the device.</p>
+    {% endif %}
+</article>
+{% else %}
+<article>
+    <p>No firewalls are being monitored. Please add firewalls on the "Manage Firewalls" page.</p>
+</article>
+{% endfor %}
+
+{% endblock %}

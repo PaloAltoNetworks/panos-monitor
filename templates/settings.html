@@ -5,14 +5,6 @@
         <h2>Configuration Settings</h2>
         <p>Set the global API credentials and polling interval here.</p>
 
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <p style="color: green;">{{ message }}</p>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
-
         <form method="post">
             <fieldset>
                 <legend>Firewall Polling Settings</legend>

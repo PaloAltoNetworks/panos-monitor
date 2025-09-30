@@ -15,11 +15,15 @@
     <p style="margin-top: -1rem;">
         <strong>Model:</strong> {{ model or 'Unknown' }} | <strong>Generation:</strong> {{ generation or 'N/A' }}
     </p>
+
+    <div style="margin-bottom: 1rem;">
+        <a href="{{ url_for('export_csv', fw_id=fw_id, timespan=current_timespan) }}" role="button" class="contrast">Export Peak Stats to CSV</a>
+    </div>
     
     <nav>
       <ul>
         <li><strong>Timeframe:</strong></li>
-        <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='5m') }}" role="button" class="{{ 'primary' if current_timespan == '5m' else 'secondary outline' }}">Last 5 Minutes</a></li>
+        <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='5m') }}" role="button" class="{{ 'primary' if current_timespan == '5m' else 'secondary outline' }}">Last 5 Mins</a></li>
         <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='1h') }}" role="button" class="{{ 'primary' if current_timespan == '1h' else 'secondary outline' }}">Last Hour</a></li>
         <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='6h') }}" role="button" class="{{ 'primary' if current_timespan == '6h' else 'secondary outline' }}">Last 6 Hours</a></li>
         <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='24h') }}" role="button" class="{{ 'primary' if current_timespan == '24h' else 'secondary outline' }}">Last 24 Hours</a></li>
@@ -30,6 +34,79 @@
 
     {% if full_data %}
         <article>
+            {# ** NEW: Display detailed capacity specs if they exist ** #}
+            {% if full_data.details %}
+            <details>
+                <summary>View Detailed Capacity Specs</summary>
+                <div class="grid">
+                    {# Column 1: Policy & Rules #}
+                    <div>
+                        <table>
+                            <tbody>
+                                <tr><td><strong>Max Sessions</strong></td><td>{% if 'max_sessions' in full_data.details and full_data.details.max_sessions is not none %}{{ "{:,}".format(full_data.details.max_sessions) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max Security Rules</strong></td><td>{% if 'max_rules' in full_data.details and full_data.details.max_rules is not none %}{{ "{:,}".format(full_data.details.max_rules) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max NAT Rules</strong></td><td>{% if 'max_nat_rules' in full_data.details and full_data.details.max_nat_rules is not none %}{{ "{:,}".format(full_data.details.max_nat_rules) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max SSL Decryption Rules</strong></td><td>{% if 'max_ssl_decrypt_rules' in full_data.details and full_data.details.max_ssl_decrypt_rules is not none %}{{ "{:,}".format(full_data.details.max_ssl_decrypt_rules) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max QoS Rules</strong></td><td>{% if 'max_qos_rules' in full_data.details and full_data.details.max_qos_rules is not none %}{{ "{:,}".format(full_data.details.max_qos_rules) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max PBF Rules</strong></td><td>{% if 'max_pbf_rules' in full_data.details and full_data.details.max_pbf_rules is not none %}{{ "{:,}".format(full_data.details.max_pbf_rules) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max DoS Protection Rules</strong></td><td>{% if 'max_dos_rules' in full_data.details and full_data.details.max_dos_rules is not none %}{{ "{:,}".format(full_data.details.max_dos_rules) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max Authentication Rules</strong></td><td>{% if 'max_auth_rules' in full_data.details and full_data.details.max_auth_rules is not none %}{{ "{:,}".format(full_data.details.max_auth_rules) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max SD-WAN Rules</strong></td><td>{% if 'max_sdwan_rules' in full_data.details and full_data.details.max_sdwan_rules is not none %}{{ "{:,}".format(full_data.details.max_sdwan_rules) }}{% else %}N/A{% endif %}</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    {# Column 2: Network & Virtualization #}
+                    <div>
+                        <table>
+                            <tbody>
+                                <tr><td><strong>Max Zones</strong></td><td>{% if 'max_zones' in full_data.details and full_data.details.max_zones is not none %}{{ "{:,}".format(full_data.details.max_zones) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max Virtual Systems (VSYS)</strong></td><td>{% if 'max_vsys' in full_data.details and full_data.details.max_vsys is not none %}{{ "{:,}".format(full_data.details.max_vsys) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max Virtual Routers</strong></td><td>{% if 'max_virtual_routers' in full_data.details and full_data.details.max_virtual_routers is not none %}{{ "{:,}".format(full_data.details.max_virtual_routers) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max VLANs</strong></td><td>{% if 'max_vlans' in full_data.details and full_data.details.max_vlans is not none %}{{ "{:,}".format(full_data.details.max_vlans) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max Interfaces</strong></td><td>{% if 'max_interfaces' in full_data.details and full_data.details.max_interfaces is not none %}{{ "{:,}".format(full_data.details.max_interfaces) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max Virtual Wires</strong></td><td>{% if 'max_vwires' in full_data.details and full_data.details.max_vwires is not none %}{{ "{:,}".format(full_data.details.max_vwires) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max Routes</strong></td><td>{% if 'max_routes' in full_data.details and full_data.details.max_routes is not none %}{{ "{:,}".format(full_data.details.max_routes) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max Multicast Routes</strong></td><td>{% if 'max_mroutes' in full_data.details and full_data.details.max_mroutes is not none %}{{ "{:,}".format(full_data.details.max_mroutes) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max ARP Entries</strong></td><td>{% if 'max_arp_entries' in full_data.details and full_data.details.max_arp_entries is not none %}{{ "{:,}".format(full_data.details.max_arp_entries) }}{% else %}N/A{% endif %}</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    {# Column 3: Objects #}
+                    <div>
+                        <table>
+                            <tbody>
+                                <tr><td><strong>Max Address Objects</strong></td><td>{% if 'max_address_objects' in full_data.details and full_data.details.max_address_objects is not none %}{{ "{:,}".format(full_data.details.max_address_objects) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max Address Groups</strong></td><td>{% if 'max_address_groups' in full_data.details and full_data.details.max_address_groups is not none %}{{ "{:,}".format(full_data.details.max_address_groups) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max Addr per Group</strong></td><td>{% if 'max_addr_per_group' in full_data.details and full_data.details.max_addr_per_group is not none %}{{ "{:,}".format(full_data.details.max_addr_per_group) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max Service Objects</strong></td><td>{% if 'max_service_objects' in full_data.details and full_data.details.max_service_objects is not none %}{{ "{:,}".format(full_data.details.max_service_objects) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max Service Groups</strong></td><td>{% if 'max_service_groups' in full_data.details and full_data.details.max_service_groups is not none %}{{ "{:,}".format(full_data.details.max_service_groups) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max Schedules</strong></td><td>{% if 'max_schedules' in full_data.details and full_data.details.max_schedules is not none %}{{ "{:,}".format(full_data.details.max_schedules) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max Security Profiles</strong></td><td>{% if 'max_security_profiles' in full_data.details and full_data.details.max_security_profiles is not none %}{{ "{:,}".format(full_data.details.max_security_profiles) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max Custom URL Patterns</strong></td><td>{% if 'max_url_patterns' in full_data.details and full_data.details.max_url_patterns is not none %}{{ "{:,}".format(full_data.details.max_url_patterns) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max Custom Signatures</strong></td><td>{% if 'max_custom_signatures' in full_data.details and full_data.details.max_custom_signatures is not none %}{{ "{:,}".format(full_data.details.max_custom_signatures) }}{% else %}N/A{% endif %}</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    {# Column 4: Advanced Features #}
+                    <div>
+                        <table>
+                            <tbody>
+                                <tr><td><strong>Max IPsec Tunnels</strong></td><td>{% if 'max_ipsec_tunnels' in full_data.details and full_data.details.max_ipsec_tunnels is not none %}{{ "{:,}".format(full_data.details.max_ipsec_tunnels) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max SSL-VPN Tunnels</strong></td><td>{% if 'max_ssl_tunnels' in full_data.details and full_data.details.max_ssl_tunnels is not none %}{{ "{:,}".format(full_data.details.max_ssl_tunnels) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max IKE Peers</strong></td><td>{% if 'max_ike_peers' in full_data.details and full_data.details.max_ike_peers is not none %}{{ "{:,}".format(full_data.details.max_ike_peers) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max BFD Sessions</strong></td><td>{% if 'max_bfd_sessions' in full_data.details and full_data.details.max_bfd_sessions is not none %}{{ "{:,}".format(full_data.details.max_bfd_sessions) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max Proxy Sessions</strong></td><td>{% if 'max_proxy_sessions' in full_data.details and full_data.details.max_proxy_sessions is not none %}{{ "{:,}".format(full_data.details.max_proxy_sessions) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max HIP Objects</strong></td><td>{% if 'max_hip_objects' in full_data.details and full_data.details.max_hip_objects is not none %}{{ "{:,}".format(full_data.details.max_hip_objects) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max DNS Cache Entries</strong></td><td>{% if 'max_dns_cache' in full_data.details and full_data.details.max_dns_cache is not none %}{{ "{:,}".format(full_data.details.max_dns_cache) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max EDL Objects</strong></td><td>{% if 'max_edl_objects' in full_data.details and full_data.details.max_edl_objects is not none %}{{ "{:,}".format(full_data.details.max_edl_objects) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max Registered IPs (User-ID)</strong></td><td>{% if 'max_registered_ips' in full_data.details and full_data.details.max_registered_ips is not none %}{{ "{:,}".format(full_data.details.max_registered_ips) }}{% else %}N/A{% endif %}</td></tr>
+                                <tr><td><strong>Max TS Agents (User-ID)</strong></td><td>{% if 'max_ts_agents' in full_data.details and full_data.details.max_ts_agents is not none %}{{ "{:,}".format(full_data.details.max_ts_agents) }}{% else %}N/A{% endif %}</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </details>
+            {% endif %}
             <div class="grid">
                 <div>
                     <h4>Peak Statistics ({{ full_data.title_prefix }})</h4>
@@ -43,9 +120,6 @@
                             <tr><td>Highest Dataplane Load</td><td>{{ full_data.summary_data.max_dp | round(2) }}%</td></tr>
                         </tbody>
                     </table>
-                </div>
-                <div>
-                     <a href="{{ url_for('export_csv', fw_id=fw_id, timespan=current_timespan) }}" role="button" class="secondary">Export Table to CSV</a>
                 </div>
             </div>
         </article>

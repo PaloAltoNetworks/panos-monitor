@@ -33,14 +33,6 @@
 
 <h2>Manage Firewalls</h2>
 
-{% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-        {% for category, message in messages %}
-            <p style="color: green;">{{ message }}</p>
-        {% endfor %}
-    {% endif %}
-{% endwith %}
-
 <div class="hover-dropdown" style="margin-bottom: 1.5rem;">
     <a role="button" href="#">Export PDF Report</a>
     <ul>
@@ -74,6 +66,13 @@
 </div>
 
 <div class="grid">
+    <article>
+        <h4>Refresh Detailed Specs</h4>
+        <p>Manually re-poll all firewalls to update their detailed capacity specs.</p>
+        <form action="{{ url_for('refresh_specs') }}" method="post">
+            <button type="submit" class="contrast">Refresh All Specs</button>
+        </form>
+    </article>
     <article>
         <h4>Import from Panorama</h4>
         <p>Imports connected firewalls from the Panorama configured in Settings.</p>
