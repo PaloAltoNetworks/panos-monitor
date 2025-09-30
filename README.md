@@ -49,11 +49,15 @@ It's highly recommended to use a virtual environment to manage project dependenc
 * **Create the environment:**
     ```
     python3 -m venv panos-monitor
-    ```* **Activate the environment:**
+    ```
+* **Activate the environment:**
     * On macOS or Linux:
+
         ```
         source panos-monitor/bin/activate
-        ```    * On Windows:
+        ```
+    * On Windows:
+
         ```
         panos-monitor\Scripts\activate
         ```
