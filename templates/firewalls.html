@@ -78,4 +78,13 @@
         </tbody>
     </table>
 </div>
+
+{% if auto_refresh %}
+<script>
+    // After 15 seconds, reload the page to clear the flash message and show updated data
+    setTimeout(() => {
+        window.location.href = window.location.pathname;
+    }, 15000);
+</script>
+{% endif %}
 {% endblock %}

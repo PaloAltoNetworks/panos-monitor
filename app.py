@@ -43,6 +43,7 @@ app.secret_key = os.urandom(24)
 
 # --- NEW: Global lock for thread-safe database writes ---
 db_lock = threading.Lock()
+background_task_running = threading.Event()
 
 # --- Database Functions ---
 def get_db_connection():
@@ -624,7 +625,11 @@ def manage_firewalls():
     conn = get_db_connection()
     firewalls = conn.execute('SELECT * FROM firewalls ORDER BY ip_address').fetchall()
     conn.close()
-    return flask.render_template('firewalls.html', firewalls=firewalls)
+    # Check for the auto-refresh flag
+    auto_refresh = 'background_refresh_pending' in flask.session
+    if auto_refresh:
+        flask.session.pop('background_refresh_pending', None)
+    return flask.render_template('firewalls.html', firewalls=firewalls, auto_refresh=auto_refresh)
 
 @app.route('/capacity')
 def capacity_dashboard():
@@ -664,7 +669,12 @@ def capacity_dashboard():
         fw_dict['util_dns_cache'] = (fw['current_dns_cache'] / fw['max_dns_cache'] * 100) if fw['current_dns_cache'] is not None and fw['max_dns_cache'] else 0
         fw_dict['util_registered_ips'] = (fw['current_registered_ips'] / fw['max_registered_ips'] * 100) if fw['current_registered_ips'] is not None and fw['max_registered_ips'] else 0
         results.append(fw_dict)
-    return flask.render_template('capacity.html', firewalls=results)
+    
+    # Check for the auto-refresh flag
+    auto_refresh = 'background_refresh_pending' in flask.session
+    if auto_refresh:
+        flask.session.pop('background_refresh_pending', None)
+    return flask.render_template('capacity.html', firewalls=results, auto_refresh=auto_refresh)
 
 @app.route('/alerts')
 def alerts():
@@ -865,6 +875,10 @@ def _refresh_specs_worker():
 @app.route('/refresh_specs', methods=['POST'])
 def refresh_specs():
     """Manually triggers a refresh of the detailed capacity specs for all firewalls."""
+    if background_task_running.is_set():
+        flask.flash("A background task is already running. Please wait for it to complete.", "warning")
+        return flask.redirect(flask.request.referrer or flask.url_for('index'))
+
     print("Manual spec refresh triggered.")
     key = load_key()
     conn = get_db_connection()
@@ -872,16 +886,18 @@ def refresh_specs():
     conn.close()
     if not settings_rows or not settings_rows[0]:
         flask.flash("Cannot refresh specs. Firewall credentials are not set in Settings.", "error")
-        return flask.redirect(flask.url_for('manage_firewalls'))
+        return flask.redirect(flask.request.referrer or flask.url_for('index'))
 
     # ** NEW: Start the worker in a background thread **
     thread = threading.Thread(target=_refresh_specs_worker)
     thread.start()
+    flask.session['background_refresh_pending'] = True
     flask.flash("Max specs refresh started in the background. This may take a few moments.", "info")
-    return flask.redirect(flask.url_for('manage_firewalls'))
+    return flask.redirect(flask.request.referrer or flask.url_for('index'))
 
 def _refresh_capacity_worker():
     """Worker function to run the capacity refresh in a background thread."""
+    background_task_running.set()
     print("Background capacity refresh worker started.")
     with app.app_context():
         key = load_key()
@@ -922,16 +938,46 @@ def _refresh_capacity_worker():
                 if fw['ip_address'] in api_keys:
                     usage_data = poll_current_usage(conn, fw['id'], fw['ip_address'], api_keys[fw['ip_address']])
                     if usage_data:
-                        # ... (The existing INSERT and alert logic remains the same)
-                        conn.execute("""INSERT OR REPLACE INTO firewall_current_usage ...""", (...))
-                        # ... (The existing alert checking logic remains the same)
+                        # ** FIX: Use the full, correct INSERT statement **
+                        conn.execute("""
+                            INSERT OR REPLACE INTO firewall_current_usage 
+                            (firewall_id, last_updated, current_rules, current_nat_rules, current_address_objects, current_service_objects, current_ipsec_tunnels, current_routes, current_mroutes, current_arp_entries, current_bfd_sessions, current_dns_cache, current_registered_ips) 
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
+                        """, (fw['id'], datetime.now().isoformat(sep=' ', timespec='microseconds'), usage_data.get('rules'), usage_data.get('nat-rules'), usage_data.get('address'), usage_data.get('service'), usage_data.get('ipsec'), usage_data.get('routes', 0), usage_data.get('mroutes'), usage_data.get('arp'), usage_data.get('bfd'), usage_data.get('dns_cache'), usage_data.get('registered_ips')))
+                        
+                        # ** FIX: Add the alert checking logic to the worker **
+                        fw_details = details_map.get(fw['id'])
+                        if fw_details:
+                            metrics_to_check = [
+                                ('Security Rules', 'rules', 'max_rules'), ('NAT Rules', 'nat-rules', 'max_nat_rules'),
+                                ('Address Objects', 'address', 'max_address_objects'), ('Service Objects', 'service', 'max_service_objects'),
+                                ('IPsec Tunnels', 'ipsec', 'max_ipsec_tunnels'), ('Routes', 'routes', 'max_routes'),
+                                ('Multicast Routes', 'mroutes', 'max_mroutes'), ('ARP Entries', 'arp', 'max_arp_entries'),
+                                ('BFD Sessions', 'bfd', 'max_bfd_sessions'), ('DNS Cache Entries', 'dns_cache', 'max_dns_cache'),
+                                ('Registered IPs (User-ID)', 'registered_ips', 'max_registered_ips')
+                            ]
+                            for label, current_key, max_key in metrics_to_check:
+                                current_val = usage_data.get(current_key)
+                                max_val = fw_details.get(max_key)
+                                if current_val is not None and max_val is not None and max_val > 0:
+                                    utilization = (current_val / max_val) * 100
+                                    if utilization >= 80:
+                                        exists = conn.execute("SELECT 1 FROM alerts WHERE firewall_id = ? AND metric_name = ? AND acknowledged = 0", (fw['id'], label)).fetchone()
+                                        if not exists:
+                                            conn.execute("INSERT INTO alerts (firewall_id, metric_name, utilization, timestamp) VALUES (?, ?, ?, ?)",
+                                                         (fw['id'], label, utilization, datetime.now()))
             conn.commit()
         conn.close()
     print("Background capacity refresh worker finished.")
+    background_task_running.clear()
 
 @app.route('/refresh_capacity', methods=['POST'])
 def refresh_capacity():
     """Manually triggers a refresh of the current object usage for all firewalls."""
+    if background_task_running.is_set():
+        flask.flash("A background task is already running. Please wait for it to complete.", "warning")
+        return flask.redirect(flask.url_for('capacity_dashboard'))
+
     print("Manual capacity usage refresh triggered.")
     key = load_key()
     conn = get_db_connection()
@@ -945,6 +991,7 @@ def refresh_capacity():
     # ** NEW: Start the worker in a background thread **
     thread = threading.Thread(target=_refresh_capacity_worker)
     thread.start()
+    flask.session['background_refresh_pending'] = True
     flask.flash("Current usage refresh started in the background. This may take a few moments.", "info")
     return flask.redirect(flask.url_for('capacity_dashboard'))
 
