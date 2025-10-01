@@ -134,6 +134,7 @@ The background poller will automatically detect the model of newly added firewal
 
 * **CSV:** On any firewall's detail page, export the summary table to a CSV file by clicking the **'Export Table to CSV'** button.
 * **PDF:** Navigate to the **Manage Firewalls** page and use the **Export PDF Report** dropdown. You can choose from three report types (Table Only, Graphs Only, Combined) across multiple timeframes.
+* **PDF:** Navigate to the **Downloads** page. Here you can generate new reports (Capacity, Table Only, Graphs Only, Combined) across multiple timeframes. Reports are generated in the background and will appear in the "Available Reports" list when ready to download.
 
 ---
 ## How It Works
