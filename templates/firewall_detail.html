@@ -130,21 +130,23 @@
                 </div>
             </details>
             {% endif %}
-            <div class="grid">
-                <div>
-                    <h4>Peak Statistics ({{ full_data.title_prefix }})</h4>
-                    <table>
-                        <thead><tr><th>Metric</th><th>Peak Value</th></tr></thead>
-                        <tbody>
-                            <tr><td>Max Sessions</td><td>{{ full_data.summary_data.max_sessions | int }}</td></tr>
-                            <tr><td>Highest Input</td><td>{{ (full_data.summary_data.max_input / 1000000) | round(2) }} Mbps</td></tr>
-                            <tr><td>Highest Output</td><td>{{ (full_data.summary_data.max_output / 1000000) | round(2) }} Mbps</td></tr>
-                            <tr><td>Highest CPU Load</td><td>{{ full_data.summary_data.max_cpu | round(2) }}%</td></tr>
-                            <tr><td>Highest Dataplane Load</td><td>{{ full_data.summary_data.max_dp | round(2) }}%</td></tr>
-                        </tbody>
-                    </table>
+            {% if full_data.summary_data %}
+                <div class="grid">
+                    <div>
+                        <h4>Peak Statistics ({{ full_data.title_prefix }})</h4>
+                        <table>
+                            <thead><tr><th>Metric</th><th>Peak Value</th></tr></thead>
+                            <tbody>
+                                <tr><td>Max Sessions</td><td>{{ full_data.summary_data.max_sessions | int }}</td></tr>
+                                <tr><td>Highest Input</td><td>{{ (full_data.summary_data.max_input / 1000000) | round(2) }} Mbps</td></tr>
+                                <tr><td>Highest Output</td><td>{{ (full_data.summary_data.max_output / 1000000) | round(2) }} Mbps</td></tr>
+                                <tr><td>Highest CPU Load</td><td>{{ full_data.summary_data.max_cpu | round(2) }}%</td></tr>
+                                <tr><td>Highest Dataplane Load</td><td>{{ full_data.summary_data.max_dp | round(2) }}%</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-            </div>
+            {% endif %}
         </article>
         <div class="grid">
             <article>

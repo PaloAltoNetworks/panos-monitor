@@ -1395,32 +1395,27 @@ def get_firewall_stats_for_timespan(conn, fw_id, timespan=None, start_date=None,
     It can return raw or summarized data based on the timespan.
     """
     is_summarized = timespan in ['24h', '7d', '30d'] or (start_date and end_date and (datetime.strptime(end_date, '%Y-%m-%d') - datetime.strptime(start_date, '%Y-%m-%d')).days > 1)
-    
-    # Define query parameters based on the chosen timespan. Use MAX for summarized views.
-    if is_summarized:
-        if timespan == '7d':
-            time_modifier, date_format_sql, date_format_py, title_prefix = '-7 days', '%Y-%m-%d', '%Y-%m-%d', "Daily Peak"
-        elif timespan == '30d':
-            time_modifier, date_format_sql, date_format_py, title_prefix = '-30 days', '%Y-%m-%d', '%Y-%m-%d', "Daily Peak"
-        else: # 24h
-            time_modifier, date_format_sql, date_format_py, title_prefix = '-24 hours', '%Y-%m-%d %H:00', '%Y-%m-%d %H:%M', "Hourly Peak"
-    elif start_date and end_date:
-        time_modifier, title_prefix = None, "Raw Data"
-    else: # Raw data reports
-        if timespan == '1h':
-            time_modifier, title_prefix = '-1 hour', "Raw Data"
-        elif timespan == '6h':
-            time_modifier, title_prefix = '-6 hours', "Raw Data"
-        else: # 5m
-            time_modifier, title_prefix = '-5 minutes', "Raw Data"
-    
-    # Build WHERE clause
+
+    # Define query parameters based on the request
     if start_date and end_date:
         where_clause = "timestamp BETWEEN ? AND ?"
         query_params = (fw_id, f"{start_date} 00:00:00", f"{end_date} 23:59:59")
+        if is_summarized:
+            date_format_sql, date_format_py, title_prefix = '%Y-%m-%d', '%Y-%m-%d', "Daily Peak"
+        else:
+            title_prefix = "Raw Data"
     else:
+        time_modifier_map = {'5m': '-5 minutes', '1h': '-1 hour', '6h': '-6 hours', '24h': '-24 hours', '7d': '-7 days', '30d': '-30 days'}
+        time_modifier = time_modifier_map.get(timespan, '-1 hour')
         where_clause = "timestamp >= datetime('now', 'localtime', ?)"
         query_params = (fw_id, time_modifier)
+        if is_summarized:
+            if timespan == '24h':
+                date_format_sql, date_format_py, title_prefix = '%Y-%m-%d %H:00', '%Y-%m-%d %H:%M', "Hourly Peak"
+            else: # 7d, 30d
+                date_format_sql, date_format_py, title_prefix = '%Y-%m-%d', '%Y-%m-%d', "Daily Peak"
+        else:
+            title_prefix = "Raw Data"
 
     # Select the correct query based on whether we need to summarize (MAX vs raw)
     if is_summarized:
@@ -1428,7 +1423,7 @@ def get_firewall_stats_for_timespan(conn, fw_id, timespan=None, start_date=None,
             SELECT strftime('{date_format_sql}', timestamp) as period,
                    MAX(active_sessions) as sessions, MAX(total_input_bps) as input_bps,
                    MAX(total_output_bps) as output_bps, MAX(cpu_load) as cpu, MAX(dataplane_load) as dp
-            FROM stats WHERE firewall_id = ? AND {where_clause.replace('?', "datetime('now', 'localtime', ?)") if not start_date else where_clause}
+            FROM stats WHERE firewall_id = ? AND {where_clause}
             GROUP BY period ORDER BY period ASC;
         """
     else: # Raw data query
