@@ -4,65 +4,15 @@
 
 {# **CHANGE**: Updated CSS to be more specific and forceful #}
 <style>
-  .hover-dropdown {
-    position: relative;
-    display: inline-block;
-  }
-  .hover-dropdown ul {
-    display: none;
-    position: absolute;
-    z-index: 100;
-    width: max-content;
-    min-width: 100%;
-    background-color: var(--card-background-color);
-    border: var(--card-border);
-    box-shadow: var(--card-box-shadow);
-    margin-top: 0;
-    padding: 0.5rem 0; /* Vertical padding */
-    margin-left: 0;
-  }
-  .hover-dropdown:hover ul {
-    display: block;
-  }
-  /* This new, more specific rule will override the default list style */
-  .hover-dropdown li {
-    list-style-type: none !important;
-    padding: 0 1rem; /* Add horizontal padding to align text */
+  main.container {
+    max-width: 1600px;
   }
 </style>
 
 <h2>Manage Firewalls</h2>
 
-<div class="hover-dropdown" style="margin-bottom: 1.5rem;">
-    <a role="button" href="#">Export PDF Report</a>
-    <ul>
-        <li><small>Table Only</small></li>
-        {# ** NEW: Added the 5-minute option ** #}
-        <li><a href="{{ url_for('export_pdf', timespan='5m', type='table_only') }}">Last 5 Minutes</a></li>
-        <li><a href="{{ url_for('export_pdf', timespan='1h', type='table_only') }}">Last Hour</a></li>
-        <li><a href="{{ url_for('export_pdf', timespan='6h', type='table_only') }}">Last 6 Hours</a></li>
-        <li><a href="{{ url_for('export_pdf', timespan='24h', type='table_only') }}">Last 24 Hours</a></li>
-        <li><a href="{{ url_for('export_pdf', timespan='7d', type='table_only') }}">Last 7 Days</a></li>
-        <li><a href="{{ url_for('export_pdf', timespan='30d', type='table_only') }}">Last 30 Days</a></li>
-        <li><hr></li>
-        <li><small>Graphs Only</small></li>
-        {# ** NEW: Added the 5-minute option ** #}
-        <li><a href="{{ url_for('export_pdf', timespan='5m', type='graphs_only') }}">Last 5 Minutes</a></li>
-        <li><a href="{{ url_for('export_pdf', timespan='1h', type='graphs_only') }}">Last Hour</a></li>
-        <li><a href="{{ url_for('export_pdf', timespan='6h', type='graphs_only') }}">Last 6 Hours</a></li>
-        <li><a href="{{ url_for('export_pdf', timespan='24h', type='graphs_only') }}">Last 24 Hours</a></li>
-        <li><a href="{{ url_for('export_pdf', timespan='7d', type='graphs_only') }}">Last 7 Days</a></li>
-        <li><a href="{{ url_for('export_pdf', timespan='30d', type='graphs_only') }}">Last 30 Days</a></li>
-        <li><hr></li>
-        <li><small>Combined (Table + Graphs)</small></li>
-        {# ** NEW: Added the 5-minute option ** #}
-        <li><a href="{{ url_for('export_pdf', timespan='5m', type='combined') }}">Last 5 Minutes</a></li>
-        <li><a href="{{ url_for('export_pdf', timespan='1h', type='combined') }}">Last Hour</a></li>
-        <li><a href="{{ url_for('export_pdf', timespan='6h', type='combined') }}">Last 6 Hours</a></li>
-        <li><a href="{{ url_for('export_pdf', timespan='24h', type='combined') }}">Last 24 Hours</a></li>
-        <li><a href="{{ url_for('export_pdf', timespan='7d', type='combined') }}">Last 7 Days</a></li>
-        <li><a href="{{ url_for('export_pdf', timespan='30d', type='combined') }}">Last 30 Days</a></li>
-    </ul>
+<div style="margin-bottom: 1.5rem;">
+    <a role="button" href="{{ url_for('downloads') }}">Generate &amp; Download Reports</a>
 </div>
 
 <div class="grid">

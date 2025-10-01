@@ -13,7 +13,7 @@
 
     {# **CHANGE**: Added 'or 'N/A'' to gracefully handle a missing generation value #}
     <p style="margin-top: -1rem;">
-        <strong>Model:</strong> {{ model or 'Unknown' }} | <strong>Generation:</strong> {{ generation or 'N/A' }}
+        <strong>Model:</strong> {{ model or 'Unknown' }} | <strong>Generation:</strong> {{ generation or 'N/A' }} | <strong>PAN-OS Version:</strong> {{ sw_version or 'Unknown' }}
     </p>
 
     <div style="margin-bottom: 1rem;">

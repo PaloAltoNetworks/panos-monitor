@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+  main.container {
+    max-width: 1600px;
+  }
+</style>
+
+<h2>Active Capacity Alerts</h2>
+<p>This page shows all capacity metrics that have exceeded an 80% utilization threshold. New alerts are generated when you refresh the data on the Capacity Dashboard.</p>
+
+<article>
+    {% if alerts %}
+    <table>
+        <thead>
+            <tr>
+                <th>Firewall</th>
+                <th>Metric</th>
+                <th>Utilization</th>
+                <th>Time Triggered</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for alert in alerts %}
+            <tr>
+                <td>
+                    <strong>{{ alert.hostname or alert.ip_address }}</strong><br>
+                    <small>{{ alert.ip_address }}</small>
+                </td>
+                <td>{{ alert.metric_name }}</td>
+                <td style="color:red; font-weight:bold;">{{ "%.1f"|format(alert.utilization) }}%</td>
+                <td>{{ alert.timestamp }}</td>
+                <td>
+                    <form action="{{ url_for('acknowledge_alert', alert_id=alert.id) }}" method="post" onsubmit="return confirm('Are you sure you want to acknowledge this alert?');">
+                        <button type="submit" class="secondary outline">Acknowledge</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>No active alerts. All systems are operating within capacity thresholds.</p>
+    {% endif %}
+</article>
+{% endblock %}

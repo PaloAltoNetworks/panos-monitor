@@ -31,9 +31,16 @@
         {% else %}
             {{ fw.ip_address }}
         {% endif %}
-        <br><small>PAN-OS: {{ fw.sw_version or 'Unknown' }}</small>
+        <br><small>Model: {{ fw.model or 'Unknown' }}</small>
+        <br><small>PAN-OS Version: {{ fw.sw_version or 'Unknown' }}</small>
         </strong>
-        <small style="float: right;">Last Updated: {{ fw.last_updated or 'Never' }}</small>
+        <small style="float: right;">Last Updated: 
+            {% if fw.last_updated %}
+                {{ fw.last_updated.split('.')[0] }}
+            {% else %}
+                Never
+            {% endif %}
+        </small>
     </header>
     {% if fw.current_rules is not none %}
     <table>

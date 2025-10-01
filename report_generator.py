@@ -90,6 +90,71 @@ def create_summary_table_page(pdf, firewalls, conn, timespan, title, specs_map):
             pdf.cell(25, 8, f"{summary['max_dp']:.2f}", 1, 0, 'R')
             pdf.ln()
 
+def create_capacity_report_page(pdf, firewalls, conn):
+    """Generates pages for the capacity report."""
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 24)
+    pdf.cell(0, 50, "PAN-OS Capacity Report", 0, 1, 'C')
+    pdf.set_font("Helvetica", "", 12)
+    pdf.cell(0, 10, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", 0, 1, 'C')
+    pdf.ln(5)
+
+    query = """
+        SELECT
+            f.id, f.hostname, f.ip_address, f.model, f.sw_version,
+            d.max_rules, d.max_nat_rules, d.max_address_objects, d.max_service_objects, d.max_ipsec_tunnels, d.max_routes, d.max_mroutes, d.max_arp_entries, d.max_bfd_sessions, d.max_dns_cache, d.max_registered_ips,
+            u.current_rules, u.current_nat_rules, u.current_address_objects, u.current_service_objects, u.current_ipsec_tunnels, u.last_updated, u.current_routes, u.current_registered_ips,
+            u.current_mroutes, u.current_arp_entries, u.current_bfd_sessions, u.current_dns_cache
+        FROM firewalls f
+        LEFT JOIN firewall_details d ON f.id = d.firewall_id
+        LEFT JOIN firewall_current_usage u ON f.id = u.firewall_id
+        WHERE f.id = ?
+    """
+
+    for fw in firewalls:
+        fw_data = conn.execute(query, (fw['id'],)).fetchone()
+        if not fw_data: continue
+
+        if not pdf.get_y() < pdf.h - 40: pdf.add_page() # Add a page break if not enough space
+
+        pdf.set_font("Helvetica", "B", 14)
+        fw_name = fw_data['hostname'] or fw_data['ip_address']
+        pdf.cell(0, 10, f"Device: {fw_name} ({fw_data['ip_address']})", 0, 1, 'L')
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(0, 5, f"Model: {fw_data['model'] or 'N/A'} | PAN-OS: {fw_data['sw_version'] or 'N/A'}", 0, 1, 'L')
+        pdf.cell(0, 5, f"Last Usage Data: {fw_data['last_updated'] or 'Never'}", 0, 1, 'L')
+        pdf.ln(5)
+
+        if fw_data['current_rules'] is None:
+            pdf.cell(0, 8, "No capacity usage data has been collected for this firewall.", 0, 1, 'L')
+            pdf.ln(10)
+            continue
+
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.cell(70, 8, 'Metric', 1, 0, 'C')
+        pdf.cell(40, 8, 'Current Usage', 1, 0, 'C')
+        pdf.cell(40, 8, 'Max Capacity', 1, 0, 'C')
+        pdf.cell(40, 8, 'Utilization', 1, 1, 'C')
+
+        pdf.set_font("Helvetica", "", 8)
+        metrics = [
+            ('Security Rules', 'current_rules', 'max_rules'), ('NAT Rules', 'current_nat_rules', 'max_nat_rules'),
+            ('Address Objects', 'current_address_objects', 'max_address_objects'), ('Service Objects', 'current_service_objects', 'max_service_objects'),
+            ('IPsec Tunnels', 'current_ipsec_tunnels', 'max_ipsec_tunnels'), ('Routes', 'current_routes', 'max_routes'),
+            ('Multicast Routes', 'current_mroutes', 'max_mroutes'), ('ARP Entries', 'current_arp_entries', 'max_arp_entries'),
+            ('BFD Sessions', 'current_bfd_sessions', 'max_bfd_sessions'), ('DNS Cache Entries', 'current_dns_cache', 'max_dns_cache'),
+            ('Registered IPs (User-ID)', 'current_registered_ips', 'max_registered_ips')
+        ]
+        for label, current_key, max_key in metrics:
+            current_val = fw_data[current_key] if fw_data[current_key] is not None else 'N/A'
+            max_val = fw_data[max_key] if fw_data[max_key] is not None else 'N/A'
+            util = (current_val / max_val * 100) if isinstance(current_val, int) and isinstance(max_val, int) and max_val > 0 else 0
+            pdf.cell(70, 8, label, 1, 0, 'L')
+            pdf.cell(40, 8, str(current_val) if isinstance(current_val, str) else f"{current_val:,}", 1, 0, 'R')
+            pdf.cell(40, 8, str(max_val) if isinstance(max_val, str) else f"{max_val:,}", 1, 0, 'R')
+            pdf.cell(40, 8, f"{util:.1f}%", 1, 1, 'R')
+        pdf.ln(10)
+
 # --- MAIN PDF GENERATION FUNCTION ---
 
 def generate_report_pdf(db_file, timespan, report_type='graphs_only'):
@@ -115,9 +180,26 @@ def generate_report_pdf(db_file, timespan, report_type='graphs_only'):
     # Handle the three different report types
     if report_type == 'table_only':
         create_summary_table_page(pdf, firewalls, conn, timespan, report_title, specs_map)
+
+    elif report_type == 'capacity':
+        # This is a new, non-timespan based report
+        create_capacity_report_page(pdf, firewalls, conn)
     
     elif report_type == 'combined':
         create_summary_table_page(pdf, firewalls, conn, timespan, report_title, specs_map)
+        
+        # Add a capacity page for each firewall before the graphs page
+        pdf.set_font("Helvetica", "B", 16)
+        pdf.cell(0, 10, "Device Capacity Details", 0, 1, 'C')
+        pdf.ln(5)
+        # We can reuse the capacity report function, but it will add a new page for each firewall.
+        # To make it flow better, we'll call it here. It will create a new page internally.
+        # The create_capacity_report_page function is designed to loop, but we will call it inside our loop.
+        # Let's call a modified version of it.
+        # For simplicity, let's just add the capacity page for each firewall here.
+        create_capacity_report_page(pdf, firewalls, conn)
+
+        # Now add the graph pages
         for fw in firewalls:
             pdf.add_page()
             pdf.set_font("Helvetica", "B", 16)

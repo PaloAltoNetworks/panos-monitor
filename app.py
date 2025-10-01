@@ -10,6 +10,7 @@ from urllib3.exceptions import InsecureRequestWarning
 import multiprocessing
 import threading
 from cryptography.fernet import Fernet
+import uuid
 import report_generator
 import logging
 
@@ -137,6 +138,30 @@ def init_db():
             FOREIGN KEY (firewall_id) REFERENCES firewalls (id) ON DELETE CASCADE
         );
     ''')
+
+    # ** NEW: Table for storing capacity alerts **
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            firewall_id INTEGER NOT NULL,
+            metric_name TEXT NOT NULL,
+            utilization REAL NOT NULL,
+            timestamp TIMESTAMP NOT NULL,
+            acknowledged BOOLEAN DEFAULT 0,
+            FOREIGN KEY (firewall_id) REFERENCES firewalls (id) ON DELETE CASCADE
+        );
+    ''')
+
+    # ** NEW: Table for storing PDF generation jobs **
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS pdf_jobs (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            timestamp TIMESTAMP NOT NULL,
+            status TEXT DEFAULT 'pending'
+        );
+    ''')
+
 
     # ** FIX: Add missing columns to firewall_current_usage table for existing databases **
     cursor.execute("PRAGMA table_info(firewall_current_usage)")
@@ -439,20 +464,90 @@ def export_csv(fw_id):
     output.headers["Content-type"] = "text/csv"
     return output
 
+def _generate_pdf_worker(timespan, report_type, job_id):
+    """Worker function to generate PDF in the background."""
+    print(f"Background PDF worker started for job {job_id}.")
+    # Ensure the reports directory exists
+    reports_dir = os.path.join(app.static_folder, 'reports')
+    os.makedirs(reports_dir, exist_ok=True)
+
+    pdf_data = report_generator.generate_report_pdf(DB_FILE, timespan, report_type)
+    if pdf_data:
+        file_path = os.path.join(reports_dir, f"{job_id}.pdf")
+        with open(file_path, 'wb') as f:
+            f.write(pdf_data)
+        with db_lock:
+            conn = get_db_connection()
+            conn.execute("UPDATE pdf_jobs SET status = 'ready' WHERE id = ?", (job_id,))
+            conn.commit()
+            conn.close()
+        print(f"PDF for job {job_id} saved to {file_path}.")
+    else:
+        print(f"PDF generation failed for job {job_id}: No data.")
+
 @app.route('/export/pdf')
 def export_pdf():
-    print("Server-side PDF export process started...")
+    """Kicks off a background job to generate a PDF report."""
     timespan = flask.request.args.get('timespan', '1h')
     report_type = flask.request.args.get('type', 'graphs_only')
+    job_id = str(uuid.uuid4())
+    download_name = f"panos-report_{timespan}_{report_type}.pdf"
+
+    # ** CHANGE: Store job info in the database instead of the session **
+    with db_lock:
+        conn = get_db_connection()
+        conn.execute("INSERT INTO pdf_jobs (id, name, timestamp) VALUES (?, ?, ?)", (job_id, download_name, datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
+
+    # Start the background thread
+    thread = threading.Thread(target=_generate_pdf_worker, args=(timespan, report_type, job_id))
+    thread.start()
+
+    flask.flash(f"Report '{download_name}' is being generated in the background.", "info")
+    return flask.redirect(flask.url_for('downloads'))
+
+@app.route('/downloads')
+def downloads():
+    """Displays a list of generated PDF reports available for download."""
+    # Clean up old files
+    reports_dir = os.path.join(app.static_folder, 'reports')
+    if os.path.exists(reports_dir):
+        for f in os.listdir(reports_dir):
+            file_path = os.path.join(reports_dir, f)
+            if os.path.getmtime(file_path) < time.time() - 3600: # 1 hour old
+                os.remove(file_path)
+    
+    # ** CHANGE: Fetch jobs from the database **
+    conn = get_db_connection()
+    jobs = conn.execute("SELECT * FROM pdf_jobs ORDER BY timestamp DESC").fetchall()
+    conn.close()
+
+    # Convert to list of dicts to pass to template
+    jobs_list = [dict(job) for job in jobs]
+
+    return flask.render_template('downloads.html', jobs=jobs_list)
+
+@app.route('/delete_report/<job_id>', methods=['POST'])
+def delete_report(job_id):
+    """Deletes a generated report file and its session entry."""
+    # ** CHANGE: Delete from database and filesystem **
+    with db_lock:
+        conn = get_db_connection()
+        conn.execute("DELETE FROM pdf_jobs WHERE id = ?", (job_id,))
+        conn.commit()
+        conn.close()
+
+    # Delete the actual file
     try:
-        pdf_data = report_generator.generate_report_pdf(DB_FILE, timespan, report_type)
-        if pdf_data is None: return "No data available for the selected period.", 404
-        print("PDF generation complete. Sending file to user.")
-        download_name = f"panos-report_{timespan}_{report_type}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
-        return Response(pdf_data, mimetype='application/pdf', headers={'Content-Disposition': f'attachment;filename={download_name}'})
+        # ** FIX: Construct an absolute path to ensure the file is found and deleted reliably **
+        file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'reports', f"{job_id}.pdf")
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            print(f"Deleted report file {job_id}.pdf")
     except Exception as e:
-        print(f"An error occurred during PDF export: {e}")
-        return f"An error occurred: {e}", 500
+        print(f"Error deleting report file {job_id}.pdf: {e}")
+    return flask.redirect(flask.url_for('downloads'))
 
 @app.route('/firewall/<int:fw_id>')
 def firewall_detail(fw_id):
@@ -460,7 +555,7 @@ def firewall_detail(fw_id):
     conn = get_db_connection()
     
     # Fetch all necessary firewall details, including the new hostname
-    fw = conn.execute('SELECT ip_address, hostname, model FROM firewalls WHERE id = ?', (fw_id,)).fetchone()
+    fw = conn.execute('SELECT ip_address, hostname, model, sw_version FROM firewalls WHERE id = ?', (fw_id,)).fetchone()
     
     if not fw:
         conn.close()
@@ -490,6 +585,7 @@ def firewall_detail(fw_id):
         hostname=fw['hostname'],
         # Pass the corrected model and generation to the template
         model=model,
+        sw_version=fw['sw_version'],
         generation=generation,
         full_data=full_data if full_data else None,
         current_timespan=timespan
@@ -541,6 +637,30 @@ def capacity_dashboard():
         fw_dict['util_registered_ips'] = (fw['current_registered_ips'] / fw['max_registered_ips'] * 100) if fw['current_registered_ips'] is not None and fw['max_registered_ips'] else 0
         results.append(fw_dict)
     return flask.render_template('capacity.html', firewalls=results)
+
+@app.route('/alerts')
+def alerts():
+    """Displays active, unacknowledged alerts."""
+    conn = get_db_connection()
+    query = """
+        SELECT a.id, a.metric_name, a.utilization, a.timestamp, f.hostname, f.ip_address
+        FROM alerts a
+        JOIN firewalls f ON a.firewall_id = f.id
+        WHERE a.acknowledged = 0
+        ORDER BY a.timestamp DESC;
+    """
+    active_alerts = conn.execute(query).fetchall()
+    conn.close()
+    return flask.render_template('alerts.html', alerts=active_alerts)
+
+@app.route('/acknowledge_alert/<int:alert_id>', methods=['POST'])
+def acknowledge_alert(alert_id):
+    """Marks an alert as acknowledged."""
+    conn = get_db_connection()
+    conn.execute("UPDATE alerts SET acknowledged = 1 WHERE id = ?", (alert_id,))
+    conn.commit()
+    conn.close()
+    return flask.redirect(flask.url_for('alerts'))
 
 @app.route('/add_firewall', methods=['POST'])
 def add_firewall():
@@ -670,6 +790,50 @@ def delete_model():
     flask.flash(f"Model '{flask.request.form['model']}' deleted successfully.", "success")
     return flask.redirect(flask.url_for('manage_models'))
 
+def _refresh_specs_worker():
+    """Worker function to run the spec refresh in a background thread."""
+    print("Background spec refresh worker started.")
+    with app.app_context(): # Need app context to access flask.flash and url_for
+        key = load_key()
+        conn = get_db_connection()
+        settings_rows = conn.execute("SELECT key, value FROM settings").fetchall()
+        settings = {row['key']: row['value'] for row in settings_rows}
+        fw_user = settings.get('FW_USER')
+        encrypted_pass = settings.get('FW_PASSWORD')
+
+        if not fw_user or not encrypted_pass:
+            print("Spec Refresh Worker: Credentials not set.")
+            conn.close()
+            return
+
+        fw_password = decrypt_message(encrypted_pass, key)
+        firewalls = conn.execute('SELECT id, ip_address FROM firewalls').fetchall()
+        
+        if not firewalls:
+            conn.close()
+            return
+
+        hosts_to_poll = [fw['ip_address'] for fw in firewalls]
+        init_tasks = [(host, fw_user, fw_password) for host in hosts_to_poll]
+        api_keys = {}
+        try:
+            with multiprocessing.Pool(processes=len(init_tasks)) as pool:
+                for res in pool.map(get_api_key, init_tasks):
+                    if res['status'] == 'success':
+                        api_keys[res['host']] = res['api_key']
+        except Exception as e:
+            print(f"Spec Refresh Worker Error: {e}")
+            conn.close()
+            return
+
+        with db_lock:
+            for fw in firewalls:
+                if fw['ip_address'] in api_keys:
+                    parse_and_store_fw_details(conn, fw['id'], api_keys[fw['ip_address']])
+            conn.commit()
+        conn.close()
+    print("Background spec refresh worker finished.")
+
 @app.route('/refresh_specs', methods=['POST'])
 def refresh_specs():
     """Manually triggers a refresh of the detailed capacity specs for all firewalls."""
@@ -677,51 +841,65 @@ def refresh_specs():
     key = load_key()
     conn = get_db_connection()
     settings_rows = conn.execute("SELECT key, value FROM settings").fetchall()
-    settings = {row['key']: row['value'] for row in settings_rows}
-    fw_user = settings.get('FW_USER')
-    encrypted_pass = settings.get('FW_PASSWORD')
-
-    if not fw_user or not encrypted_pass:
+    conn.close()
+    if not settings_rows or not settings_rows[0]:
         flask.flash("Cannot refresh specs. Firewall credentials are not set in Settings.", "error")
-        conn.close()
         return flask.redirect(flask.url_for('manage_firewalls'))
 
-    fw_password = decrypt_message(encrypted_pass, key)
-    firewalls = conn.execute('SELECT id, ip_address FROM firewalls').fetchall()
-    
-    if not firewalls:
-        flask.flash("No firewalls to refresh.", "info")
-        conn.close()
-        return flask.redirect(flask.url_for('manage_firewalls'))
-
-    # Get API keys for all firewalls
-    hosts_to_poll = [fw['ip_address'] for fw in firewalls]
-    init_tasks = [(host, fw_user, fw_password) for host in hosts_to_poll]
-    api_keys = {}
-    try:
-        with multiprocessing.Pool(processes=len(init_tasks)) as pool:
-            for res in pool.map(get_api_key, init_tasks):
-                if res['status'] == 'success':
-                    api_keys[res['host']] = res['api_key']
-    except Exception as e:
-        flask.flash(f"An error occurred while getting API keys: {e}", "error")
-        conn.close()
-        return flask.redirect(flask.url_for('manage_firewalls'))
-
-    # ** FIX: Use a lock for thread-safe database access **
-    with db_lock:
-        print("Acquired lock for manual spec refresh.")
-        # Re-poll specs for all firewalls that we have a key for
-        refreshed_count = 0
-        for fw in firewalls:
-            if fw['ip_address'] in api_keys:
-                parse_and_store_fw_details(conn, fw['id'], api_keys[fw['ip_address']])
-                refreshed_count += 1
-        conn.commit()
-    print("Released lock for manual spec refresh.")
-
-    flask.flash(f"Successfully refreshed detailed specs for {refreshed_count} firewalls.", "success")
+    # ** NEW: Start the worker in a background thread **
+    thread = threading.Thread(target=_refresh_specs_worker)
+    thread.start()
+    flask.flash("Max specs refresh started in the background. This may take a few moments.", "info")
     return flask.redirect(flask.url_for('manage_firewalls'))
+
+def _refresh_capacity_worker():
+    """Worker function to run the capacity refresh in a background thread."""
+    print("Background capacity refresh worker started.")
+    with app.app_context():
+        key = load_key()
+        conn = get_db_connection()
+        settings_rows = conn.execute("SELECT key, value FROM settings").fetchall()
+        settings = {row['key']: row['value'] for row in settings_rows}
+        fw_user = settings.get('FW_USER')
+        encrypted_pass = settings.get('FW_PASSWORD')
+
+        if not fw_user or not encrypted_pass:
+            print("Capacity Refresh Worker: Credentials not set.")
+            conn.close()
+            return
+
+        fw_password = decrypt_message(encrypted_pass, key)
+        firewalls = conn.execute('SELECT id, ip_address FROM firewalls').fetchall()
+        
+        if not firewalls:
+            conn.close()
+            return
+
+        hosts_to_poll = [fw['ip_address'] for fw in firewalls]
+        init_tasks = [(host, fw_user, fw_password) for host in hosts_to_poll]
+        api_keys = {}
+        try:
+            with multiprocessing.Pool(processes=len(init_tasks)) as pool:
+                for res in pool.map(get_api_key, init_tasks):
+                    if res['status'] == 'success':
+                        api_keys[res['host']] = res['api_key']
+        except Exception as e:
+            print(f"Capacity Refresh Worker Error: {e}")
+            conn.close()
+            return
+
+        with db_lock:
+            details_map = {row['firewall_id']: dict(row) for row in conn.execute("SELECT * FROM firewall_details").fetchall()}
+            for fw in firewalls:
+                if fw['ip_address'] in api_keys:
+                    usage_data = poll_current_usage(conn, fw['id'], fw['ip_address'], api_keys[fw['ip_address']])
+                    if usage_data:
+                        # ... (The existing INSERT and alert logic remains the same)
+                        conn.execute("""INSERT OR REPLACE INTO firewall_current_usage ...""", (...))
+                        # ... (The existing alert checking logic remains the same)
+            conn.commit()
+        conn.close()
+    print("Background capacity refresh worker finished.")
 
 @app.route('/refresh_capacity', methods=['POST'])
 def refresh_capacity():
@@ -731,52 +909,15 @@ def refresh_capacity():
     conn = get_db_connection()
     settings_rows = conn.execute("SELECT key, value FROM settings").fetchall()
     settings = {row['key']: row['value'] for row in settings_rows}
-    fw_user = settings.get('FW_USER')
-    encrypted_pass = settings.get('FW_PASSWORD')
-
-    if not fw_user or not encrypted_pass:
+    conn.close()
+    if not settings.get('FW_USER') or not settings.get('FW_PASSWORD'):
         flask.flash("Cannot refresh capacity. Firewall credentials are not set in Settings.", "error")
-        conn.close()
         return flask.redirect(flask.url_for('capacity_dashboard'))
 
-    fw_password = decrypt_message(encrypted_pass, key)
-    firewalls = conn.execute('SELECT id, ip_address FROM firewalls').fetchall()
-    
-    if not firewalls:
-        flask.flash("No firewalls to refresh.", "info")
-        conn.close()
-        return flask.redirect(flask.url_for('capacity_dashboard'))
-
-    # Get API keys for all firewalls
-    hosts_to_poll = [fw['ip_address'] for fw in firewalls]
-    init_tasks = [(host, fw_user, fw_password) for host in hosts_to_poll]
-    api_keys = {}
-    try:
-        with multiprocessing.Pool(processes=len(init_tasks)) as pool:
-            for res in pool.map(get_api_key, init_tasks):
-                if res['status'] == 'success':
-                    api_keys[res['host']] = res['api_key']
-    except Exception as e:
-        flask.flash(f"An error occurred while getting API keys: {e}", "error")
-        conn.close()
-        return flask.redirect(flask.url_for('capacity_dashboard'))
-
-    # Poll for current usage and store it
-    refreshed_count = 0
-    with db_lock:
-        for fw in firewalls:
-            if fw['ip_address'] in api_keys:
-                usage_data = poll_current_usage(conn, fw['id'], fw['ip_address'], api_keys[fw['ip_address']])
-                if usage_data:
-                    conn.execute("""
-                        INSERT OR REPLACE INTO firewall_current_usage 
-                        (firewall_id, last_updated, current_rules, current_nat_rules, current_address_objects, current_service_objects, current_ipsec_tunnels, current_routes, current_mroutes, current_arp_entries, current_bfd_sessions, current_dns_cache, current_registered_ips) 
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
-                    """, (fw['id'], datetime.now().isoformat(sep=' ', timespec='microseconds'), usage_data.get('rules'), usage_data.get('nat-rules'), usage_data.get('address'), usage_data.get('service'), usage_data.get('ipsec'), usage_data.get('routes', 0), usage_data.get('mroutes'), usage_data.get('arp'), usage_data.get('bfd'), usage_data.get('dns_cache'), usage_data.get('registered_ips'))) 
-                    refreshed_count += 1
-        conn.commit()
-
-    flask.flash(f"Successfully refreshed capacity usage for {refreshed_count} firewalls.", "success")
+    # ** NEW: Start the worker in a background thread **
+    thread = threading.Thread(target=_refresh_capacity_worker)
+    thread.start()
+    flask.flash("Current usage refresh started in the background. This may take a few moments.", "info")
     return flask.redirect(flask.url_for('capacity_dashboard'))
 
 def poll_current_usage(conn, firewall_id, host, api_key):

@@ -1,0 +1,110 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+  /* Add a bottom margin to the report generation buttons to create space when they wrap */
+  .report-buttons a[role="button"] {
+    margin-bottom: 0.5rem;
+  }
+</style>
+
+<style>
+  main.container {
+    max-width: 1600px;
+  }
+</style>
+
+<h2>Reports</h2>
+
+<div class="grid">
+    <article>
+        <h4>Generate New Report</h4>
+        <p>Select a report type and timeframe to generate a new PDF report. The report will be generated in the background and will appear in the "Available Reports" list when ready.</p>
+        
+        <div class="grid">
+            <div>
+                <small><b>Capacity Report</b></small>
+                <p class="report-buttons"><a href="{{ url_for('export_pdf', type='capacity') }}" role="button">Generate Now</a></p>
+                <hr>
+                <small><b>Table Only Report</b></small>
+                <p class="report-buttons">
+                    <a href="{{ url_for('export_pdf', timespan='5m', type='table_only') }}" role="button" class="outline">5 Mins</a>
+                    <a href="{{ url_for('export_pdf', timespan='1h', type='table_only') }}" role="button" class="outline">1 Hour</a>
+                    <a href="{{ url_for('export_pdf', timespan='6h', type='table_only') }}" role="button" class="outline">6 Hours</a>
+                    <a href="{{ url_for('export_pdf', timespan='24h', type='table_only') }}" role="button" class="outline">24 Hours</a>
+                </p>
+            </div>
+            <div>
+                <small><b>Graphs Only Report</b></small>
+                <p class="report-buttons">
+                    <a href="{{ url_for('export_pdf', timespan='5m', type='graphs_only') }}" role="button" class="outline">5 Mins</a>
+                    <a href="{{ url_for('export_pdf', timespan='1h', type='graphs_only') }}" role="button" class="outline">1 Hour</a>
+                    <a href="{{ url_for('export_pdf', timespan='6h', type='graphs_only') }}" role="button" class="outline">6 Hours</a>
+                    <a href="{{ url_for('export_pdf', timespan='24h', type='graphs_only') }}" role="button" class="outline">24 Hours</a>
+                </p>
+                <hr>
+                <small><b>Combined Report</b></small>
+                <p class="report-buttons">
+                    <a href="{{ url_for('export_pdf', timespan='5m', type='combined') }}" role="button" class="outline">5 Mins</a>
+                    <a href="{{ url_for('export_pdf', timespan='1h', type='combined') }}" role="button" class="outline">1 Hour</a>
+                    <a href="{{ url_for('export_pdf', timespan='6h', type='combined') }}" role="button" class="outline">6 Hours</a>
+                    <a href="{{ url_for('export_pdf', timespan='24h', type='combined') }}" role="button" class="outline">24 Hours</a>
+                </p>
+            </div>
+        </div>
+    </article>
+
+    <article>
+        <h4>Available Reports</h4>
+        <p>Reports are automatically deleted after one hour.</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Report Name</th>
+                    <th>Generated</th>
+                    <th style="min-width: 250px;">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for job in jobs|reverse %}
+                <tr>
+                    <td>
+                        {% if job.name|length > 35 %}
+                            {{ job.name[:32] }}...
+                        {% else %}
+                            {{ job.name }}
+                        {% endif %}
+                    </td>
+                    <td>{{ job.timestamp.replace('T', ' ').split('.')[0] }}</td>
+                    <td>
+                        {% if job.status == 'ready' %}
+                            <div class="grid" style="margin-bottom: 0; grid-template-columns: 1fr 1fr;">
+                                <a href="{{ url_for('static', filename='reports/' + job.id + '.pdf') }}" role="button" download="{{ job.name }}" style="margin-bottom: 0;">Download</a>
+                                <form action="{{ url_for('delete_report', job_id=job.id) }}" method="post" style="margin-bottom: 0;">
+                                    <button type="submit" class="secondary outline" style="margin-bottom: 0;">Delete</button>
+                                </form>
+                            </div>
+                        {% else %}
+                            <button aria-busy="true" style="margin-bottom: 0;">Generating...</button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="3">No reports have been generated recently.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </article>
+</div>
+
+<script>
+    // Auto-refresh the page every 10 seconds if there are pending jobs
+    const hasPendingJobs = {{ (jobs|selectattr('status', 'equalto', 'pending')|list|length > 0)|tojson }};
+    if (hasPendingJobs) {
+        setTimeout(() => {
+            window.location.reload();
+        }, 5000);
+    }
+</script>
+
+{% endblock %}
