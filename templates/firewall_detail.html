@@ -1,6 +1,12 @@
 {% extends 'base.html' %}
 
 {% block content %}
+    <style>
+      main.container {
+        max-width: 1600px;
+      }
+    </style>
+
     <a href="{{ url_for('index') }}">&larr; Back to Dashboard</a>
     <h2>
         Historical Stats for 
@@ -20,6 +26,23 @@
         <a href="{{ url_for('export_csv', fw_id=fw_id, timespan=current_timespan) }}" role="button" class="contrast">Export Peak Stats to CSV</a>
     </div>
     
+    <details>
+        <summary>Select Custom Date Range</summary>
+        <article>
+            <form method="post">
+                <div class="grid">
+                    <label for="start_date">Start Date
+                        <input type="date" id="start_date" name="start_date" required>
+                    </label>
+                    <label for="end_date">End Date
+                        <input type="date" id="end_date" name="end_date" required>
+                    </label>
+                </div>
+                <button type="submit">View Custom Range</button>
+            </form>
+        </article>
+    </details>
+
     <nav>
       <ul>
         <li><strong>Timeframe:</strong></li>

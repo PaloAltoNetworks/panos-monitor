@@ -19,7 +19,30 @@
 <div class="grid">
     <article>
         <h4>Generate New Report</h4>
-        <p>Select a report type and timeframe to generate a new PDF report. The report will be generated in the background and will appear in the "Available Reports" list when ready.</p>
+        <p>Select a predefined timeframe or a custom date range to generate a new PDF report. Reports are generated in the background and will appear in the "Available Reports" list when ready.</p>
+        
+        <hr>
+        <h6>Custom Date Range Report</h6>
+        <form action="{{ url_for('export_pdf') }}" method="post">
+            <div class="grid">
+                <label for="start_date">Start Date
+                    <input type="date" id="start_date" name="start_date" required>
+                </label>
+                <label for="end_date">End Date
+                    <input type="date" id="end_date" name="end_date" required>
+                </label>
+                <label for="report_type">Report Type
+                    <select id="report_type" name="report_type" required>
+                        <option value="combined">Combined (Table, Capacity, Graphs)</option>
+                        <option value="table_only">Table Only</option>
+                        <option value="graphs_only">Graphs Only</option>
+                    </select>
+                </label>
+            </div>
+            <button type="submit">Generate Custom Report</button>
+        </form>
+        <hr>
+        <h6>Predefined Timeframe Reports</h6>
         
         <div class="grid">
             <div>
@@ -32,6 +55,8 @@
                     <a href="{{ url_for('export_pdf', timespan='1h', type='table_only') }}" role="button" class="outline">1 Hour</a>
                     <a href="{{ url_for('export_pdf', timespan='6h', type='table_only') }}" role="button" class="outline">6 Hours</a>
                     <a href="{{ url_for('export_pdf', timespan='24h', type='table_only') }}" role="button" class="outline">24 Hours</a>
+                    <a href="{{ url_for('export_pdf', timespan='7d', type='table_only') }}" role="button" class="outline">7 Days</a>
+                    <a href="{{ url_for('export_pdf', timespan='30d', type='table_only') }}" role="button" class="outline">30 Days</a>
                 </p>
             </div>
             <div>
@@ -41,6 +66,8 @@
                     <a href="{{ url_for('export_pdf', timespan='1h', type='graphs_only') }}" role="button" class="outline">1 Hour</a>
                     <a href="{{ url_for('export_pdf', timespan='6h', type='graphs_only') }}" role="button" class="outline">6 Hours</a>
                     <a href="{{ url_for('export_pdf', timespan='24h', type='graphs_only') }}" role="button" class="outline">24 Hours</a>
+                    <a href="{{ url_for('export_pdf', timespan='7d', type='graphs_only') }}" role="button" class="outline">7 Days</a>
+                    <a href="{{ url_for('export_pdf', timespan='30d', type='graphs_only') }}" role="button" class="outline">30 Days</a>
                 </p>
                 <hr>
                 <small><b>Combined Report</b></small>
@@ -49,6 +76,8 @@
                     <a href="{{ url_for('export_pdf', timespan='1h', type='combined') }}" role="button" class="outline">1 Hour</a>
                     <a href="{{ url_for('export_pdf', timespan='6h', type='combined') }}" role="button" class="outline">6 Hours</a>
                     <a href="{{ url_for('export_pdf', timespan='24h', type='combined') }}" role="button" class="outline">24 Hours</a>
+                    <a href="{{ url_for('export_pdf', timespan='7d', type='combined') }}" role="button" class="outline">7 Days</a>
+                    <a href="{{ url_for('export_pdf', timespan='30d', type='combined') }}" role="button" class="outline">30 Days</a>
                 </p>
             </div>
         </div>

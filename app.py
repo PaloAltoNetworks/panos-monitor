@@ -464,14 +464,14 @@ def export_csv(fw_id):
     output.headers["Content-type"] = "text/csv"
     return output
 
-def _generate_pdf_worker(timespan, report_type, job_id):
+def _generate_pdf_worker(report_type, job_id, timespan=None, start_date=None, end_date=None):
     """Worker function to generate PDF in the background."""
     print(f"Background PDF worker started for job {job_id}.")
     # Ensure the reports directory exists
     reports_dir = os.path.join(app.static_folder, 'reports')
     os.makedirs(reports_dir, exist_ok=True)
 
-    pdf_data = report_generator.generate_report_pdf(DB_FILE, timespan, report_type)
+    pdf_data = report_generator.generate_report_pdf(DB_FILE, report_type, timespan=timespan, start_date=start_date, end_date=end_date)
     if pdf_data:
         file_path = os.path.join(reports_dir, f"{job_id}.pdf")
         with open(file_path, 'wb') as f:
@@ -485,13 +485,25 @@ def _generate_pdf_worker(timespan, report_type, job_id):
     else:
         print(f"PDF generation failed for job {job_id}: No data.")
 
-@app.route('/export/pdf')
+@app.route('/export/pdf', methods=['GET', 'POST'])
 def export_pdf():
-    """Kicks off a background job to generate a PDF report."""
-    timespan = flask.request.args.get('timespan', '1h')
-    report_type = flask.request.args.get('type', 'graphs_only')
+    """Kicks off a background job to generate a PDF report. Handles both predefined timespans and custom date ranges."""
     job_id = str(uuid.uuid4())
-    download_name = f"panos-report_{timespan}_{report_type}.pdf"
+    
+    if flask.request.method == 'POST':
+        # Custom date range from form
+        report_type = flask.request.form.get('report_type')
+        start_date = flask.request.form.get('start_date')
+        end_date = flask.request.form.get('end_date')
+        timespan = f"custom_{start_date}_to_{end_date}"
+        download_name = f"panos-report_{report_type}_{timespan}.pdf"
+        thread_args = (report_type, job_id, None, start_date, end_date)
+    else: # GET request
+        # Predefined timespan from buttons
+        timespan = flask.request.args.get('timespan', '1h')
+        report_type = flask.request.args.get('type', 'graphs_only')
+        download_name = f"panos-report_{timespan}_{report_type}.pdf"
+        thread_args = (report_type, job_id, timespan, None, None)
 
     # ** CHANGE: Store job info in the database instead of the session **
     with db_lock:
@@ -501,7 +513,7 @@ def export_pdf():
         conn.close()
 
     # Start the background thread
-    thread = threading.Thread(target=_generate_pdf_worker, args=(timespan, report_type, job_id))
+    thread = threading.Thread(target=_generate_pdf_worker, args=thread_args)
     thread.start()
 
     flask.flash(f"Report '{download_name}' is being generated in the background.", "info")
@@ -549,10 +561,21 @@ def delete_report(job_id):
         print(f"Error deleting report file {job_id}.pdf: {e}")
     return flask.redirect(flask.url_for('downloads'))
 
-@app.route('/firewall/<int:fw_id>')
+@app.route('/firewall/<int:fw_id>', methods=['GET', 'POST'])
 def firewall_detail(fw_id):
-    timespan = flask.request.args.get('timespan', '1h')
     conn = get_db_connection()
+
+    # Handle form submission for custom date range
+    if flask.request.method == 'POST':
+        start_date = flask.request.form.get('start_date')
+        end_date = flask.request.form.get('end_date')
+        timespan = f"custom_{start_date}_to_{end_date}"
+        chart_data = get_firewall_stats_for_timespan(conn, fw_id, start_date=start_date, end_date=end_date)
+    else: # Default GET request
+        timespan = flask.request.args.get('timespan', '1h')
+        start_date = None
+        end_date = None
+        chart_data = get_firewall_stats_for_timespan(conn, fw_id, timespan=timespan)
     
     # Fetch all necessary firewall details, including the new hostname
     fw = conn.execute('SELECT ip_address, hostname, model, sw_version FROM firewalls WHERE id = ?', (fw_id,)).fetchone()
@@ -569,12 +592,17 @@ def firewall_detail(fw_id):
     # ** NEW: Fetch detailed specs and pass them to the template **
     details = conn.execute('SELECT * FROM firewall_details WHERE firewall_id = ?', (fw_id,)).fetchone()
 
-    chart_data = get_firewall_stats_for_timespan(conn, fw_id, timespan)
     summary_stats = None
     if chart_data:
-        time_modifier = {'5m': '-5 minutes', '1h': '-1 hour', '6h': '-6 hours', '24h': '-24 hours', '7d': '-7 days', '30d': '-30 days'}.get(timespan, '-1 hour')
-        query_summary = f"SELECT MAX(active_sessions) as max_sessions, MAX(total_input_bps) as max_input, MAX(total_output_bps) as max_output, MAX(cpu_load) as max_cpu, MAX(dataplane_load) as max_dp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}');"
-        summary_stats = conn.execute(query_summary, (fw_id,)).fetchone()
+        if start_date and end_date:
+            where_clause = "timestamp BETWEEN ? AND ?"
+            query_params = (fw_id, f"{start_date} 00:00:00", f"{end_date} 23:59:59")
+        else:
+            time_modifier = {'5m': '-5 minutes', '1h': '-1 hour', '6h': '-6 hours', '24h': '-24 hours', '7d': '-7 days', '30d': '-30 days'}.get(timespan, '-1 hour')
+            where_clause = "timestamp >= datetime('now', 'localtime', ?)"
+            query_params = (fw_id, time_modifier)
+        query_summary = f"SELECT MAX(active_sessions) as max_sessions, MAX(total_input_bps) as max_input, MAX(total_output_bps) as max_output, MAX(cpu_load) as max_cpu, MAX(dataplane_load) as max_dp FROM stats WHERE firewall_id = ? AND {where_clause};"
+        summary_stats = conn.execute(query_summary, query_params).fetchone()
     full_data = {"chart_data": chart_data, "summary_data": dict(summary_stats) if summary_stats else None, "details": dict(details) if details else {}}
     conn.close()
 
@@ -1314,12 +1342,12 @@ def background_worker_loop():
         print(f"Polling cycle finished. Sleeping for {poll_interval} seconds.")
         time.sleep(poll_interval)
 
-def get_firewall_stats_for_timespan(conn, fw_id, timespan):
+def get_firewall_stats_for_timespan(conn, fw_id, timespan=None, start_date=None, end_date=None):
     """
     A centralized function to fetch and process firewall stats for a given timeframe.
     It can return raw or summarized data based on the timespan.
     """
-    is_summarized = timespan in ['24h', '7d', '30d']
+    is_summarized = timespan in ['24h', '7d', '30d'] or (start_date and end_date and (datetime.strptime(end_date, '%Y-%m-%d') - datetime.strptime(start_date, '%Y-%m-%d')).days > 1)
     
     # Define query parameters based on the chosen timespan. Use MAX for summarized views.
     if is_summarized:
@@ -1329,6 +1357,8 @@ def get_firewall_stats_for_timespan(conn, fw_id, timespan):
             time_modifier, date_format_sql, date_format_py, title_prefix = '-30 days', '%Y-%m-%d', '%Y-%m-%d', "Daily Peak"
         else: # 24h
             time_modifier, date_format_sql, date_format_py, title_prefix = '-24 hours', '%Y-%m-%d %H:00', '%Y-%m-%d %H:%M', "Hourly Peak"
+    elif start_date and end_date:
+        time_modifier, title_prefix = None, "Raw Data"
     else: # Raw data reports
         if timespan == '1h':
             time_modifier, title_prefix = '-1 hour', "Raw Data"
@@ -1337,26 +1367,31 @@ def get_firewall_stats_for_timespan(conn, fw_id, timespan):
         else: # 5m
             time_modifier, title_prefix = '-5 minutes', "Raw Data"
     
+    # Build WHERE clause
+    if start_date and end_date:
+        where_clause = "timestamp BETWEEN ? AND ?"
+        query_params = (fw_id, f"{start_date} 00:00:00", f"{end_date} 23:59:59")
+    else:
+        where_clause = "timestamp >= datetime('now', 'localtime', ?)"
+        query_params = (fw_id, time_modifier)
+
     # Select the correct query based on whether we need to summarize (MAX vs raw)
     if is_summarized:
         query = f"""
             SELECT strftime('{date_format_sql}', timestamp) as period,
                    MAX(active_sessions) as sessions, MAX(total_input_bps) as input_bps,
                    MAX(total_output_bps) as output_bps, MAX(cpu_load) as cpu, MAX(dataplane_load) as dp
-            -- **FIX**: Added 'localtime' to the time comparison
-            FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}')
+            FROM stats WHERE firewall_id = ? AND {where_clause.replace('?', "datetime('now', 'localtime', ?)") if not start_date else where_clause}
             GROUP BY period ORDER BY period ASC;
         """
     else: # Raw data query
         query = f"""
             SELECT timestamp, active_sessions as sessions, total_input_bps as input_bps,
                    total_output_bps as output_bps, cpu_load as cpu, dataplane_load as dp
-            -- **FIX**: Added 'localtime' to the time comparison
-            FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}')
+            FROM stats WHERE firewall_id = ? AND {where_clause}
             ORDER BY timestamp ASC;
         """
-    
-    stats = conn.execute(query, (fw_id,)).fetchall()
+    stats = conn.execute(query, query_params).fetchall()
 
     if not stats:
         return None # Return None if no data is found

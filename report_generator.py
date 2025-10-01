@@ -43,7 +43,7 @@ def create_chart_image(labels, datasets, title, y_label):
     plt.close(fig)
     return buf
 
-def create_summary_table_page(pdf, firewalls, conn, timespan, title, specs_map):
+def create_summary_table_page(pdf, firewalls, conn, title, specs_map, timespan=None, start_date=None, end_date=None):
     """Generates the first page of the report with a summary table."""
     pdf.add_page()
     pdf.set_font("Helvetica", "B", 24)
@@ -56,7 +56,13 @@ def create_summary_table_page(pdf, firewalls, conn, timespan, title, specs_map):
     pdf.cell(0, 10, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", 0, 1, 'C')
     pdf.ln(5)
 
-    time_modifier = {'1h': '-1 hour', '6h': '-6 hours', '24h': '-24 hours', '7d': '-7 days', '30d': '-30 days'}.get(timespan, '-5 minutes')
+    if start_date and end_date:
+        where_clause = "timestamp BETWEEN ? AND ?"
+        query_params_base = (f"{start_date} 00:00:00", f"{end_date} 23:59:59")
+    else:
+        time_modifier = {'1h': '-1 hour', '6h': '-6 hours', '24h': '-24 hours', '7d': '-7 days', '30d': '-30 days'}.get(timespan, '-5 minutes')
+        where_clause = "timestamp >= datetime('now', 'localtime', ?)"
+        query_params_base = (time_modifier,)
     
     pdf.set_font("Helvetica", "B", 9)
     pdf.cell(40, 8, 'Hostname', 1, 0, 'C')
@@ -72,8 +78,9 @@ def create_summary_table_page(pdf, firewalls, conn, timespan, title, specs_map):
 
     pdf.set_font("Helvetica", "", 8)
     for fw in firewalls:
-        query = f"SELECT MAX(active_sessions) as max_sessions, MAX(total_input_bps) as max_input, MAX(total_output_bps) as max_output, MAX(cpu_load) as max_cpu, MAX(dataplane_load) as max_dp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}');"
-        summary = conn.execute(query, (fw['id'],)).fetchone()
+        query = f"SELECT MAX(active_sessions) as max_sessions, MAX(total_input_bps) as max_input, MAX(total_output_bps) as max_output, MAX(cpu_load) as max_cpu, MAX(dataplane_load) as max_dp FROM stats WHERE firewall_id = ? AND {where_clause};"
+        query_params = (fw['id'],) + query_params_base
+        summary = conn.execute(query, query_params).fetchone()
         
         # **CHANGE**: Now uses the 'specs_map' variable that was passed in
         generation = specs_map.get(fw['model'], {}).get('generation', 'N/A') # Use .get() for safety
@@ -157,7 +164,7 @@ def create_capacity_report_page(pdf, firewalls, conn):
 
 # --- MAIN PDF GENERATION FUNCTION ---
 
-def generate_report_pdf(db_file, timespan, report_type='graphs_only'):
+def generate_report_pdf(db_file, report_type, timespan=None, start_date=None, end_date=None):
     conn = sqlite3.connect(db_file, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     firewalls = conn.execute('SELECT id, ip_address, hostname, model FROM firewalls ORDER BY ip_address').fetchall()
@@ -173,20 +180,22 @@ def generate_report_pdf(db_file, timespan, report_type='graphs_only'):
     
     # --- This logic is now self-contained and correct ---
     # The title prefix is determined by the data fetching function.
-    # We just need a default for the main title.
-    title_prefix = "Peak" if timespan in ['24h', '7d', '30d'] else "Raw Data"
-    report_title = f"{title_prefix} Report ({timespan})"
+    if start_date and end_date:
+        report_title = f"Report for {start_date} to {end_date}"
+    else:
+        title_prefix = "Peak" if timespan in ['24h', '7d', '30d'] else "Raw Data"
+        report_title = f"{title_prefix} Report ({timespan})"
 
     # Handle the three different report types
     if report_type == 'table_only':
-        create_summary_table_page(pdf, firewalls, conn, timespan, report_title, specs_map)
+        create_summary_table_page(pdf, firewalls, conn, report_title, specs_map, timespan=timespan, start_date=start_date, end_date=end_date)
 
     elif report_type == 'capacity':
         # This is a new, non-timespan based report
         create_capacity_report_page(pdf, firewalls, conn)
     
     elif report_type == 'combined':
-        create_summary_table_page(pdf, firewalls, conn, timespan, report_title, specs_map)
+        create_summary_table_page(pdf, firewalls, conn, report_title, specs_map, timespan=timespan, start_date=start_date, end_date=end_date)
         
         # Add a capacity page for each firewall before the graphs page
         pdf.set_font("Helvetica", "B", 16)
@@ -210,7 +219,7 @@ def generate_report_pdf(db_file, timespan, report_type='graphs_only'):
             pdf.set_font("Helvetica", "", 12)
             pdf.cell(0, 10, f"Model: {model} | Generation: {generation}", 0, 1, 'C')
             
-            chart_data = _fetch_and_process_data(conn, fw['id'], timespan)
+            chart_data = _fetch_and_process_data(conn, fw['id'], timespan=timespan, start_date=start_date, end_date=end_date)
             if not chart_data:
                 pdf.set_font("Helvetica", "", 12)
                 pdf.cell(0, 10, "No data for this period.", 0, 1, 'L')
@@ -243,7 +252,7 @@ def generate_report_pdf(db_file, timespan, report_type='graphs_only'):
             pdf.set_font("Helvetica", "", 12)
             pdf.cell(0, 10, f"Model: {model} | Generation: {generation}", 0, 1, 'C')
             
-            chart_data = _fetch_and_process_data(conn, fw['id'], timespan)
+            chart_data = _fetch_and_process_data(conn, fw['id'], timespan=timespan, start_date=start_date, end_date=end_date)
             if not chart_data:
                 pdf.set_font("Helvetica", "", 12); pdf.cell(0, 10, "No data for this period.", 0, 1, 'L'); continue
 
