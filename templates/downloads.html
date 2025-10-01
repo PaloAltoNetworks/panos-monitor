@@ -113,8 +113,18 @@
                                     <button type="submit" class="secondary outline" style="margin-bottom: 0;">Delete</button>
                                 </form>
                             </div>
+                        {% elif job.status == 'failed' %}
+                            <div class="grid" style="margin-bottom: 0; grid-template-columns: 1fr 1fr;">
+                                <button class="secondary" disabled style="margin-bottom: 0;">Failed</button>
+                                <form action="{{ url_for('delete_report', job_id=job.id) }}" method="post" style="margin-bottom: 0;"><button type="submit" class="secondary outline" style="margin-bottom: 0;">Delete</button></form>
+                            </div>
                         {% else %}
-                            <button aria-busy="true" style="margin-bottom: 0;">Generating...</button>
+                            <div class="grid" style="margin-bottom: 0; grid-template-columns: 1fr 1fr;">
+                                <button aria-busy="true" style="margin-bottom: 0;">Generating...</button>
+                                <form action="{{ url_for('delete_report', job_id=job.id) }}" method="post" style="margin-bottom: 0;">
+                                    <button type="submit" class="secondary outline" style="margin-bottom: 0;">Delete</button>
+                                </form>
+                            </div>
                         {% endif %}
                     </td>
                 </tr>

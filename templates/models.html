@@ -33,6 +33,10 @@
                     Max Throughput (Mbps)
                     <input type="number" id="max_throughput" name="max_throughput" placeholder="e.g., 5000" required>
                 </label>
+                <label for="max_ssl_decrypt_sessions">
+                    Max SSL Decrypt Sessions
+                    <input type="number" id="max_ssl_decrypt_sessions" name="max_ssl_decrypt_sessions" placeholder="e.g., 4200" required>
+                </label>
             </div>
             <button type="submit">Add Model</button>
         </form>
@@ -49,6 +53,7 @@
                     <th>Generation</th>
                     <th>Max Sessions</th>
                     <th>Max Throughput (Mbps)</th>
+                    <th>Max SSL Decrypt Sessions</th>
                     <th>Action</th>
                 </tr>
             </thead>
@@ -59,10 +64,11 @@
                     <td>{{ model.generation }}</td>
                     <td>{{ "{:,}".format(model.max_sessions) }}</td>
                     <td>{{ "{:,}".format(model.max_throughput_mbps) }}</td>
+                    <td>{{ "{:,}".format(model.max_ssl_decrypt_sessions) if model.max_ssl_decrypt_sessions is not none else 'N/A' }}</td>
                     <td>
                         <form action="{{ url_for('delete_model') }}" method="post" onsubmit="return confirm('Are you sure you want to delete this model?');" style="margin-bottom: 0;">
                             <input type="hidden" name="model" value="{{ model.model }}">
-                            <button type="submit" class="secondary outline" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">Delete</button>
+                            <button type="submit" class="secondary outline">Delete</button>
                         </form>
                     </td>
                 </tr>

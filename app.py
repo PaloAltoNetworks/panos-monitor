@@ -55,9 +55,9 @@ def init_db():
     conn = get_db_connection()
     conn.execute('PRAGMA foreign_keys = ON;')
     conn.execute('''CREATE TABLE IF NOT EXISTS firewalls (id INTEGER PRIMARY KEY AUTOINCREMENT, ip_address TEXT UNIQUE NOT NULL, last_checked TIMESTAMP, status TEXT DEFAULT 'unknown');''')
-    conn.execute('''CREATE TABLE IF NOT EXISTS stats (id INTEGER PRIMARY KEY AUTOINCREMENT, firewall_id INTEGER NOT NULL, timestamp TIMESTAMP NOT NULL, active_sessions INTEGER, total_input_bps REAL, total_output_bps REAL, cpu_load REAL, dataplane_load REAL, FOREIGN KEY (firewall_id) REFERENCES firewalls (id) ON DELETE CASCADE);''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS stats (id INTEGER PRIMARY KEY AUTOINCREMENT, firewall_id INTEGER NOT NULL, timestamp TIMESTAMP NOT NULL, active_sessions INTEGER, ssl_decrypt_sessions INTEGER, total_input_bps REAL, total_output_bps REAL, cpu_load REAL, dataplane_load REAL, FOREIGN KEY (firewall_id) REFERENCES firewalls (id) ON DELETE CASCADE);''')
     # ** NEW: Table for firewall model specifications **
-    conn.execute('''CREATE TABLE IF NOT EXISTS firewall_models (model TEXT PRIMARY KEY, generation TEXT, max_sessions INTEGER, max_throughput_mbps INTEGER);''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS firewall_models (model TEXT PRIMARY KEY, generation TEXT, max_sessions INTEGER, max_throughput_mbps INTEGER, max_ssl_decrypt_sessions INTEGER);''')
     conn.execute('''CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);''')
     conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('POLL_INTERVAL', '30')")
     
@@ -135,6 +135,7 @@ def init_db():
             current_arp_entries INTEGER,
             current_bfd_sessions INTEGER,
             current_dns_cache INTEGER,
+            current_ssl_decrypt_sessions INTEGER,
             current_registered_ips INTEGER,
             FOREIGN KEY (firewall_id) REFERENCES firewalls (id) ON DELETE CASCADE
         );
@@ -173,7 +174,8 @@ def init_db():
         'current_arp_entries': 'INTEGER',
         'current_bfd_sessions': 'INTEGER',
         'current_dns_cache': 'INTEGER',
-        'current_registered_ips': 'INTEGER'
+        'current_registered_ips': 'INTEGER',
+        'current_ssl_decrypt_sessions': 'INTEGER'
     }
     for col, col_type in required_usage_columns.items():
         if col not in usage_columns:
@@ -184,12 +186,25 @@ def init_db():
     cursor.execute("PRAGMA table_info(firewall_details)")
     details_columns = {row['name'] for row in cursor.fetchall()}
     required_details_columns = {
-        'advance_routing_enabled': 'BOOLEAN'
+        'advance_routing_enabled': 'BOOLEAN',
     }
     for col, col_type in required_details_columns.items():
         if col not in details_columns:
             print(f"Database schema outdated. Adding column '{col}' to 'firewall_details' table...")
             conn.execute(f"ALTER TABLE firewall_details ADD COLUMN {col} {col_type};")
+
+    # ** FIX: Add missing columns to stats and firewall_models tables **
+    cursor.execute("PRAGMA table_info(stats)")
+    stats_columns = {row['name'] for row in cursor.fetchall()}
+    if 'ssl_decrypt_sessions' not in stats_columns:
+        print("Database schema outdated. Adding column 'ssl_decrypt_sessions' to 'stats' table...")
+        conn.execute("ALTER TABLE stats ADD COLUMN ssl_decrypt_sessions INTEGER;")
+
+    cursor.execute("PRAGMA table_info(firewall_models)")
+    model_columns = {row['name'] for row in cursor.fetchall()}
+    if 'max_ssl_decrypt_sessions' not in model_columns:
+        print("Database schema outdated. Adding column 'max_ssl_decrypt_sessions' to 'firewall_models' table...")
+        conn.execute("ALTER TABLE firewall_models ADD COLUMN max_ssl_decrypt_sessions INTEGER;")
 
     # ** NEW: One-time data seeding from pa_models.py to the database **
     seed_firewall_models(conn)
@@ -468,23 +483,32 @@ def export_csv(fw_id):
 def _generate_pdf_worker(report_type, job_id, timespan=None, start_date=None, end_date=None):
     """Worker function to generate PDF in the background."""
     print(f"Background PDF worker started for job {job_id}.")
-    # Ensure the reports directory exists
-    reports_dir = os.path.join(app.static_folder, 'reports')
-    os.makedirs(reports_dir, exist_ok=True)
+    with app.app_context():
+        try:
+            # Ensure the reports directory exists
+            reports_dir = os.path.join(app.static_folder, 'reports')
+            os.makedirs(reports_dir, exist_ok=True)
 
-    pdf_data = report_generator.generate_report_pdf(DB_FILE, report_type, timespan=timespan, start_date=start_date, end_date=end_date)
-    if pdf_data:
-        file_path = os.path.join(reports_dir, f"{job_id}.pdf")
-        with open(file_path, 'wb') as f:
-            f.write(pdf_data)
-        with db_lock:
-            conn = get_db_connection()
-            conn.execute("UPDATE pdf_jobs SET status = 'ready' WHERE id = ?", (job_id,))
-            conn.commit()
-            conn.close()
-        print(f"PDF for job {job_id} saved to {file_path}.")
-    else:
-        print(f"PDF generation failed for job {job_id}: No data.")
+            pdf_data = report_generator.generate_report_pdf(DB_FILE, report_type, timespan=timespan, start_date=start_date, end_date=end_date)
+            if pdf_data:
+                file_path = os.path.join(reports_dir, f"{job_id}.pdf")
+                with open(file_path, 'wb') as f:
+                    f.write(pdf_data)
+                with db_lock:
+                    conn = get_db_connection()
+                    conn.execute("UPDATE pdf_jobs SET status = 'ready' WHERE id = ?", (job_id,))
+                    conn.commit()
+                    conn.close()
+                print(f"PDF for job {job_id} saved to {file_path}.")
+            else:
+                raise Exception("No data returned from report generator.")
+        except Exception as e:
+            print(f"PDF generation for job {job_id} failed: {e}")
+            with db_lock:
+                conn = get_db_connection()
+                conn.execute("UPDATE pdf_jobs SET status = 'failed' WHERE id = ?", (job_id,))
+                conn.commit()
+                conn.close()
 
 @app.route('/export/pdf', methods=['GET', 'POST'])
 def export_pdf():
@@ -638,11 +662,14 @@ def capacity_dashboard():
     query = """
         SELECT
             f.id, f.hostname, f.ip_address, f.model,
-            f.sw_version, d.max_rules, d.max_nat_rules, d.max_address_objects, d.max_service_objects, d.max_ipsec_tunnels, d.max_routes, d.max_mroutes, d.max_arp_entries, d.max_bfd_sessions, d.max_dns_cache, d.max_registered_ips,
+            f.sw_version, m.max_ssl_decrypt_sessions,
+            d.max_rules, d.max_nat_rules, d.max_address_objects, d.max_service_objects, d.max_ipsec_tunnels, d.max_routes, d.max_mroutes, d.max_arp_entries, d.max_bfd_sessions, d.max_dns_cache, d.max_registered_ips,
             u.current_rules, u.current_nat_rules, u.current_address_objects, u.current_service_objects, u.current_ipsec_tunnels, u.last_updated, u.current_routes, u.current_registered_ips,
-            u.current_mroutes, u.current_arp_entries, u.current_bfd_sessions, u.current_dns_cache
+            u.current_mroutes, u.current_arp_entries, u.current_bfd_sessions, u.current_dns_cache, u.current_ssl_decrypt_sessions
         FROM
             firewalls f
+        LEFT JOIN
+            firewall_models m ON f.model = m.model
         LEFT JOIN
             firewall_details d ON f.id = d.firewall_id
         LEFT JOIN
@@ -668,6 +695,7 @@ def capacity_dashboard():
         fw_dict['util_bfd'] = (fw['current_bfd_sessions'] / fw['max_bfd_sessions'] * 100) if fw['current_bfd_sessions'] is not None and fw['max_bfd_sessions'] else 0
         fw_dict['util_dns_cache'] = (fw['current_dns_cache'] / fw['max_dns_cache'] * 100) if fw['current_dns_cache'] is not None and fw['max_dns_cache'] else 0
         fw_dict['util_registered_ips'] = (fw['current_registered_ips'] / fw['max_registered_ips'] * 100) if fw['current_registered_ips'] is not None and fw['max_registered_ips'] else 0
+        fw_dict['util_ssl_decrypt'] = (fw['current_ssl_decrypt_sessions'] / fw['max_ssl_decrypt_sessions'] * 100) if fw['current_ssl_decrypt_sessions'] is not None and fw['max_ssl_decrypt_sessions'] else 0
         results.append(fw_dict)
     
     # Check for the auto-refresh flag
@@ -806,8 +834,8 @@ def add_model():
     conn = get_db_connection()
     try:
         conn.execute(
-            "INSERT INTO firewall_models (model, generation, max_sessions, max_throughput_mbps) VALUES (?, ?, ?, ?)",
-            (flask.request.form['model'], flask.request.form['generation'], flask.request.form['max_sessions'], flask.request.form['max_throughput'])
+            "INSERT INTO firewall_models (model, generation, max_sessions, max_throughput_mbps, max_ssl_decrypt_sessions) VALUES (?, ?, ?, ?, ?)",
+            (flask.request.form['model'], flask.request.form['generation'], flask.request.form['max_sessions'], flask.request.form['max_throughput'], flask.request.form['max_ssl_decrypt_sessions'])
         )
         conn.commit()
         flask.flash(f"Model '{flask.request.form['model']}' added successfully.", "success")
@@ -830,6 +858,7 @@ def delete_model():
 
 def _refresh_specs_worker():
     """Worker function to run the spec refresh in a background thread."""
+    background_task_running.set()
     print("Background spec refresh worker started.")
     with app.app_context(): # Need app context to access flask.flash and url_for
         key = load_key()
@@ -871,6 +900,7 @@ def _refresh_specs_worker():
             conn.commit()
         conn.close()
     print("Background spec refresh worker finished.")
+    background_task_running.clear()
 
 @app.route('/refresh_specs', methods=['POST'])
 def refresh_specs():
@@ -941,9 +971,9 @@ def _refresh_capacity_worker():
                         # ** FIX: Use the full, correct INSERT statement **
                         conn.execute("""
                             INSERT OR REPLACE INTO firewall_current_usage 
-                            (firewall_id, last_updated, current_rules, current_nat_rules, current_address_objects, current_service_objects, current_ipsec_tunnels, current_routes, current_mroutes, current_arp_entries, current_bfd_sessions, current_dns_cache, current_registered_ips) 
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
-                        """, (fw['id'], datetime.now().isoformat(sep=' ', timespec='microseconds'), usage_data.get('rules'), usage_data.get('nat-rules'), usage_data.get('address'), usage_data.get('service'), usage_data.get('ipsec'), usage_data.get('routes', 0), usage_data.get('mroutes'), usage_data.get('arp'), usage_data.get('bfd'), usage_data.get('dns_cache'), usage_data.get('registered_ips')))
+                            (firewall_id, last_updated, current_rules, current_nat_rules, current_address_objects, current_service_objects, current_ipsec_tunnels, current_routes, current_mroutes, current_arp_entries, current_bfd_sessions, current_dns_cache, current_registered_ips, current_ssl_decrypt_sessions) 
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
+                        """, (fw['id'], datetime.now().isoformat(sep=' ', timespec='microseconds'), usage_data.get('rules'), usage_data.get('nat-rules'), usage_data.get('address'), usage_data.get('service'), usage_data.get('ipsec'), usage_data.get('routes', 0), usage_data.get('mroutes'), usage_data.get('arp'), usage_data.get('bfd'), usage_data.get('dns_cache'), usage_data.get('registered_ips'), usage_data.get('ssl_decrypt_sessions')))
                         
                         # ** FIX: Add the alert checking logic to the worker **
                         fw_details = details_map.get(fw['id'])
@@ -1009,7 +1039,8 @@ def poll_current_usage(conn, firewall_id, host, api_key):
             'arp': ("<show><arp><entry name='all'/></arp></show>", './/entries/entry'),
             'bfd': ("<show><bfd><session><entry name='all'/></session></bfd></show>", './/result/entry'),
             'dns_cache': ("<show><dns-proxy><cache><all/></cache></dns-proxy></show>", './/entry'),
-            'registered_ips': ("<show><user><ip-user-mapping><all></all></ip-user-mapping></user></show>", './/entry')
+            'registered_ips': ("<show><user><ip-user-mapping><all></all></ip-user-mapping></user></show>", './/entry'),
+            'ssl_decrypt_sessions': ("<show><session><all><filter><ssl-decrypt>yes</ssl-decrypt><count>yes</count></filter></all></session></show>", './/result')
         }
     }
     usage_data = {}
@@ -1105,6 +1136,18 @@ def poll_current_usage(conn, firewall_id, host, api_key):
                         if len(parts) > 1 and parts[1].strip().isdigit():
                             total_dns_entries += int(parts[1].strip())
                 usage_data[key] = total_dns_entries
+            elif key == 'ssl_decrypt_sessions':
+                # Special handling for SSL decrypt count which returns a CDATA block
+                response = requests.get(f"https://{host}/api/", params=params, verify=False, timeout=15)
+                response.raise_for_status()
+                root = ET.fromstring(response.content)
+                cdata_text = root.findtext(find_path)
+                count = 0
+                if cdata_text and 'Number of sessions that match filter:' in cdata_text:
+                    parts = cdata_text.split(':')
+                    if len(parts) > 1 and parts[1].strip().isdigit():
+                        count = int(parts[1].strip())
+                usage_data[key] = count
             else:
                 response = requests.get(f"https://{host}/api/", params=params, verify=False, timeout=15)
                 response.raise_for_status()
@@ -1220,12 +1263,22 @@ def poll_single_firewall(args):
         # API Calls
         session_xml = requests.get(f"https://{host}/api/?type=op&key={api_key}&cmd=<show><session><info/></session></show>", verify=False, timeout=15).content
         if_counter_xml = requests.get(f"https://{host}/api/?type=op&key={api_key}&cmd=<show><counter><interface>all</interface></counter></show>", verify=False, timeout=15).content
+        ssl_decrypt_xml = requests.get(f"https://{host}/api/?type=op&key={api_key}&cmd=<show><session><all><filter><ssl-decrypt>yes</ssl-decrypt><count>yes</count></filter></all></session></show>", verify=False, timeout=15).content
         resource_xml = requests.get(f"https://{host}/api/?type=op&key={api_key}&cmd=<show><running><resource-monitor></resource-monitor></running></show>", verify=False, timeout=15).content
         
         # Process Session info
         session_tree = ET.fromstring(session_xml)
         active_sessions = int(session_tree.find('.//num-active').text or 0)
         
+        # Process SSL Decrypt Session info
+        ssl_decrypt_tree = ET.fromstring(ssl_decrypt_xml)
+        cdata_text = ssl_decrypt_tree.findtext('.//result')
+        ssl_decrypt_sessions = 0
+        if cdata_text and 'Number of sessions that match filter:' in cdata_text:
+            parts = cdata_text.split(':')
+            if len(parts) > 1 and parts[1].strip().isdigit():
+                ssl_decrypt_sessions = int(parts[1].strip())
+
         # Process Resource monitor info
         resource_tree = ET.fromstring(resource_xml)
         cpu_load = 0.0
@@ -1268,6 +1321,7 @@ def poll_single_firewall(args):
             "status": "success", "host": host,
             "data": { 
                 "active_sessions": active_sessions, 
+                "ssl_decrypt_sessions": ssl_decrypt_sessions,
                 "total_input_bps": total_in_bps, 
                 "total_output_bps": total_out_bps,
                 "cpu_load": cpu_load,
@@ -1368,6 +1422,12 @@ def background_worker_loop():
         # Explicitly format the datetime object to a string to avoid DeprecationWarning in Python 3.12+
         timestamp_now_str = datetime.now().isoformat(sep=' ', timespec='microseconds')
         # ** FIX: Use a lock for thread-safe database access **
+        # ** NEW: Also check if a manual task is running before trying to write **
+        if background_task_running.is_set():
+            print("Worker: Manual refresh in progress. Skipping this write cycle.")
+            conn.close()
+            time.sleep(poll_interval)
+            continue
         with db_lock:
             for res in results:
                 host = res['host']
@@ -1380,8 +1440,8 @@ def background_worker_loop():
                     s = res['data']
                     if s['total_input_bps'] > 0 or s['total_output_bps'] > 0 or s['active_sessions'] > 0:
                         conn.execute(
-                            'INSERT INTO stats (firewall_id, timestamp, active_sessions, total_input_bps, total_output_bps, cpu_load, dataplane_load) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                            (firewall_id, timestamp_now_str, s['active_sessions'], s['total_input_bps'], s['total_output_bps'], s['cpu_load'], s['dataplane_load'])
+                            'INSERT INTO stats (firewall_id, timestamp, active_sessions, ssl_decrypt_sessions, total_input_bps, total_output_bps, cpu_load, dataplane_load) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                            (firewall_id, timestamp_now_str, s['active_sessions'], s['ssl_decrypt_sessions'], s['total_input_bps'], s['total_output_bps'], s['cpu_load'], s['dataplane_load'])
                         )
             conn.commit()
 
@@ -1422,14 +1482,14 @@ def get_firewall_stats_for_timespan(conn, fw_id, timespan=None, start_date=None,
         query = f"""
             SELECT strftime('{date_format_sql}', timestamp) as period,
                    MAX(active_sessions) as sessions, MAX(total_input_bps) as input_bps,
-                   MAX(total_output_bps) as output_bps, MAX(cpu_load) as cpu, MAX(dataplane_load) as dp
+                   MAX(total_output_bps) as output_bps, MAX(cpu_load) as cpu, MAX(dataplane_load) as dp, MAX(ssl_decrypt_sessions) as ssl_sessions
             FROM stats WHERE firewall_id = ? AND {where_clause}
             GROUP BY period ORDER BY period ASC;
         """
     else: # Raw data query
         query = f"""
             SELECT timestamp, active_sessions as sessions, total_input_bps as input_bps,
-                   total_output_bps as output_bps, cpu_load as cpu, dataplane_load as dp
+                   total_output_bps as output_bps, cpu_load as cpu, dataplane_load as dp, ssl_decrypt_sessions as ssl_sessions
             FROM stats WHERE firewall_id = ? AND {where_clause}
             ORDER BY timestamp ASC;
         """
@@ -1447,12 +1507,14 @@ def get_firewall_stats_for_timespan(conn, fw_id, timespan=None, start_date=None,
     return {
         "labels": labels,
         "session_data": [s['sessions'] for s in stats],
+        "ssl_session_data": [s['ssl_sessions'] for s in stats],
         "input_data_mbps": [s['input_bps'] / 1000000 for s in stats],
         "output_data_mbps": [s['output_bps'] / 1000000 for s in stats],
         "cpu_data": [s['cpu'] for s in stats],
         "dataplane_data": [s['dp'] for s in stats],
         "title_prefix": title_prefix
     }
+
 
 if __name__ == '__main__':
     # Add this for multiprocessing support in frozen executables (PyInstaller)

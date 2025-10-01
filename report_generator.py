@@ -108,9 +108,9 @@ def create_capacity_report_page(pdf, firewalls, conn):
 
     query = """
         SELECT
-            f.id, f.hostname, f.ip_address, f.model, f.sw_version,
+            f.id, f.hostname, f.ip_address, f.model, f.sw_version, d.max_ssl_decrypt_sessions,
             d.max_rules, d.max_nat_rules, d.max_address_objects, d.max_service_objects, d.max_ipsec_tunnels, d.max_routes, d.max_mroutes, d.max_arp_entries, d.max_bfd_sessions, d.max_dns_cache, d.max_registered_ips,
-            u.current_rules, u.current_nat_rules, u.current_address_objects, u.current_service_objects, u.current_ipsec_tunnels, u.last_updated, u.current_routes, u.current_registered_ips,
+            u.current_rules, u.current_nat_rules, u.current_address_objects, u.current_service_objects, u.current_ipsec_tunnels, u.last_updated, u.current_routes, u.current_registered_ips, u.current_ssl_decrypt_sessions,
             u.current_mroutes, u.current_arp_entries, u.current_bfd_sessions, u.current_dns_cache
         FROM firewalls f
         LEFT JOIN firewall_details d ON f.id = d.firewall_id
@@ -146,6 +146,7 @@ def create_capacity_report_page(pdf, firewalls, conn):
         pdf.set_font("Helvetica", "", 8)
         metrics = [
             ('Security Rules', 'current_rules', 'max_rules'), ('NAT Rules', 'current_nat_rules', 'max_nat_rules'),
+            ('SSL Decrypt Sessions', 'current_ssl_decrypt_sessions', 'max_ssl_decrypt_sessions'),
             ('Address Objects', 'current_address_objects', 'max_address_objects'), ('Service Objects', 'current_service_objects', 'max_service_objects'),
             ('IPsec Tunnels', 'current_ipsec_tunnels', 'max_ipsec_tunnels'), ('Routes', 'current_routes', 'max_routes'),
             ('Multicast Routes', 'current_mroutes', 'max_mroutes'), ('ARP Entries', 'current_arp_entries', 'max_arp_entries'),
