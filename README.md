@@ -60,7 +60,7 @@ It's highly recommended to use a virtual environment to manage project dependenc
     python3 -m venv pan-monitor-app
     ```
 * **Activate the environment:**
-    * On macOS or Linux:
+    * On macOS or Linux:    
 
         ```
         source pan-monitor-app/bin/activate
@@ -146,3 +146,59 @@ The background poller will automatically detect the model of newly added firewal
 * **Configuration:** Application settings, including encrypted API credentials and hardware specifications for the Upgrade Advisor, are stored in the database.
 * **Security:** The password encryption key is stored in the `secret.key` file. **Important:** Do not delete this file, as it is required to decrypt the stored credentials. If you back up the database, back up this key file as well.
 * **PDF Generation:** PDF reports are generated entirely on the server using **Matplotlib** to create chart images and **FPDF2** to assemble the document.
+
+---
+## PAN-OS API Commands Used
+
+The application interacts with your Palo Alto Networks firewalls using the XML API. Here are the specific commands and their purposes:
+
+1.  **API Key Generation (Authentication)**
+    *   **API Type:** `type=keygen`
+    *   **Parameters:** `user=<username>`, `password=<password>`
+    *   **Purpose:** To obtain an API key for subsequent API calls.
+    *   **CLI Equivalent:** (No direct CLI equivalent, this is an API-specific function)
+
+2.  **System Information (Model, Hostname, PAN-OS Version)**
+    *   **API Command:** `<show><system><info/></system></show>`
+    *   **Purpose:** To discover the firewall's model, hostname, and software version.
+    *   **CLI Equivalent:** `show system info`
+
+3.  **Detailed Capacity Specifications**
+    *   **API Command:** `<show><system><state><filter>cfg.general.*</filter></state></system></show>`
+    *   **Purpose:** To retrieve a comprehensive list of internal configuration limits and capacities (e.g., max rules, max zones, max BFD sessions, etc.) for the specific firewall model.
+    *   **CLI Equivalent:** `show system state filter cfg.general.*`
+
+4.  **Current Configuration Object Counts (Capacity Dashboard)**
+    *   **API Type:** `type=config`, `action=get`
+    *   **Purpose:** To count the number of configured objects. The application counts the `<entry>` tags in the XML response.
+    *   **Commands:**
+        *   **Security Rules:** `xpath=/config/devices/entry[@name='localhost.localdomain']/vsys/entry/rulebase/security/rules`
+        *   **NAT Rules:** `xpath=/config/devices/entry[@name='localhost.localdomain']/vsys/entry/rulebase/nat/rules`
+        *   **Address Objects:** `xpath=/config/devices/entry[@name='localhost.localdomain']/vsys/entry/address`
+        *   **Service Objects:** `xpath=/config/devices/entry[@name='localhost.localdomain']/vsys/entry/service`
+        *   **IPsec Tunnels:** `xpath=/config/devices/entry[@name='localhost.localdomain']/network/tunnel/ipsec`
+
+5.  **Current Operational Object Counts (Capacity Dashboard)**
+    *   **API Type:** `type=op`
+    *   **Purpose:** To count the number of currently active or learned operational states.
+    *   **Commands:**
+        *   **Routes (Standard/Advanced):** `<show><routing><route></route></routing></show>` or `<show><advanced-routing><route></route></advanced-routing></show>`
+        *   **Multicast Routes (Standard/Advanced):** `<show><routing><multicast><route/></multicast></routing></show>` or `<show><advanced-routing><multicast><route></route></multicast></advanced-routing></show>`
+        *   **ARP Entries:** `<show><arp><entry name='all'/></arp></show>`
+        *   **BFD Sessions (Standard/Advanced, PAN-OS 11.0+):** `<show><routing><bfd><summary/></bfd></routing></show>` or `<show><advanced-routing><bfd><summary/></bfd></advanced-routing></show>`
+        *   **DNS Cache Entries:** `<show><dns-proxy><cache><all/></cache></dns-proxy></show>`
+        *   **Registered IPs (User-ID):** `<show><user><ip-user-mapping><all></all></ip-user-mapping></user></show>`
+        *   **SSL Decrypt Sessions:** `<show><session><all><filter><ssl-decrypt>yes</ssl-decrypt><count>yes</count></filter></all></session></show>`
+
+6.  **Real-time Performance Statistics (Main Polling Loop)**
+    *   **API Type:** `type=op`
+    *   **Commands:**
+        *   **Active Sessions:** `<show><session><info/></session></show>`
+        *   **Interface Counters:** `<show><counter><interface>all</interface></counter></show>`
+        *   **Resource Monitor (CPU/DP Load):** `<show><running><resource-monitor></resource-monitor></running></show>`
+
+7.  **Panorama Device Import**
+    *   **API Type:** `type=op`
+    *   **Command:** `<show><devices><connected></connected></devices></show>`
+    *   **Purpose:** To retrieve a list of all firewalls connected to Panorama.
+    *   **CLI Equivalent:** `show devices connected`
