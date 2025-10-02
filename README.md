@@ -13,7 +13,7 @@ A simple, web-based monitoring dashboard for Palo Alto Networks firewalls. This 
 * **Historical Graphing:** Click on any firewall to view detailed historical graphs for its key performance metrics.
 * **Selectable Timeframes:** View graphs and summary data for various timeframes, from the last 5 minutes to the last 30 days.
 * **Detailed Device Specifications:** Automatically polls and displays a comprehensive list of over 35 detailed capacity limits (max sessions, max rules, max tunnels, etc.) for each firewall.
-* **Upgrade Advisor:** Analyzes peak usage against known model specifications and recommends a hardware upgrade if utilization exceeds an 80% threshold.
+* **Upgrade Advisor:** Analyzes peak usage against known model specifications and recommends a hardware upgrade if utilization exceeds an 80% threshold. The logic recommends the next model up within the same hardware generation, providing a practical upgrade path. If a device is already the top model in its series, it will recommend a general upgrade.
 * **Peak Statistics Summary:** View a table of peak values (max sessions, highest throughput, max CPU/DP load) for each firewall over your selected timeframe.
 * **Asynchronous Reporting & Downloads:**
     * A dedicated "Downloads" page for generating and downloading reports.
