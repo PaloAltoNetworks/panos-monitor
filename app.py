@@ -50,6 +50,13 @@ background_task_running = threading.Event()
 def inject_background_task_status():
     return dict(background_task_is_running=background_task_running.is_set())
 
+@app.context_processor
+def inject_theme():
+    conn = get_db_connection()
+    theme_setting = conn.execute("SELECT value FROM settings WHERE key = 'THEME'").fetchone()
+    conn.close()
+    return dict(current_theme=theme_setting['value'] if theme_setting else 'light')
+
 # --- Database Functions ---
 def get_db_connection():
     conn = sqlite3.connect(DB_FILE, check_same_thread=False)
@@ -64,6 +71,7 @@ def init_db():
     # ** NEW: Table for firewall model specifications **
     conn.execute('''CREATE TABLE IF NOT EXISTS firewall_models (model TEXT PRIMARY KEY, generation TEXT, max_sessions INTEGER, max_throughput_mbps INTEGER, max_ssl_decrypt_sessions INTEGER);''')
     conn.execute('''CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);''')
+    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('THEME', 'light')")
     conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('ALERT_THRESHOLD', '80')")
     conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('POLL_INTERVAL', '30')")
     
@@ -805,6 +813,19 @@ def acknowledge_alerts():
         flask.flash(f"Acknowledged {len(alert_ids_to_ack)} alert(s).", "success")
     return flask.redirect(flask.url_for('alerts'))
 
+@app.route('/toggle_theme', methods=['POST'])
+def toggle_theme():
+    """Saves the selected theme to the database."""
+    data = flask.request.get_json()
+    theme = data.get('theme')
+    if theme in ['light', 'dark']:
+        conn = get_db_connection()
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ('THEME', theme))
+        conn.commit()
+        conn.close()
+        return flask.jsonify({'status': 'success', 'theme': theme})
+    return flask.jsonify({'status': 'error', 'message': 'Invalid theme'}), 400
+
 @app.route('/add_firewall', methods=['POST'])
 def add_firewall():
     ip_address = flask.request.form['ip_address']
@@ -833,50 +854,52 @@ def import_firewalls():
 def _import_from_panorama_worker():
     """Worker function to run the Panorama import in a background thread."""
     background_task_running.set()
-    print("Background Panorama import worker started.")
-    with app.app_context():
-        key = load_key()
-        conn = get_db_connection()
-        settings = {row['key']: row['value'] for row in conn.execute("SELECT key, value FROM settings").fetchall()}
-        pano_host = settings.get('PANORAMA_HOST')
-        pano_user = settings.get('PANORAMA_USER')
-        encrypted_pass = settings.get('PANORAMA_PASSWORD')
+    try:
+        print("Background Panorama import worker started.")
+        with app.app_context():
+            key = load_key()
+            conn = get_db_connection()
+            settings = {row['key']: row['value'] for row in conn.execute("SELECT key, value FROM settings").fetchall()}
+            pano_host = settings.get('PANORAMA_HOST')
+            pano_user = settings.get('PANORAMA_USER')
+            encrypted_pass = settings.get('PANORAMA_PASSWORD')
 
-        if not all([pano_host, pano_user, encrypted_pass]):
-            print("Panorama import failed: Settings are incomplete.")
-            conn.close()
-            background_task_running.clear()
-            return
+            if not all([pano_host, pano_user, encrypted_pass]):
+                print("Panorama import failed: Settings are incomplete.")
+                conn.close()
+                return
 
-        pano_pass = decrypt_message(encrypted_pass, key)
-        
-        try:
-            api_params = {'type': 'keygen', 'user': pano_user, 'password': pano_pass}
-            response = requests.get(f"https://{pano_host}/api/", params=api_params, verify=False, timeout=10)
-            response.raise_for_status()
-            tree = ET.fromstring(response.content)
-            api_key = tree.find('.//key')
-            if api_key is None or not api_key.text:
-                raise Exception("Failed to get API key from Panorama. Check credentials.")
-
-            cmd = "<show><devices><connected></connected></devices></show>"
-            response = requests.get(f"https://{pano_host}/api/?type=op&cmd={cmd}&key={api_key.text}", verify=False, timeout=20)
-            response.raise_for_status()
-
-            device_tree = ET.fromstring(response.content)
-            ips_to_import = [dev.findtext('ip-address') for dev in device_tree.findall('.//devices/entry')]
+            pano_pass = decrypt_message(encrypted_pass, key)
             
-            with db_lock:
-                for ip in ips_to_import:
-                    if ip:
-                        conn.execute('INSERT OR IGNORE INTO firewalls (ip_address) VALUES (?)', (ip,))
-                conn.commit()
-            print(f"Panorama import successful. Processed {len(ips_to_import)} devices.")
-        except Exception as e:
-            print(f"Error during Panorama import: {e}")
-        finally:
-            conn.close()
-            background_task_running.clear()
+            try:
+                api_params = {'type': 'keygen', 'user': pano_user, 'password': pano_pass}
+                response = requests.get(f"https://{pano_host}/api/", params=api_params, verify=False, timeout=10)
+                response.raise_for_status()
+                tree = ET.fromstring(response.content)
+                api_key = tree.find('.//key')
+                if api_key is None or not api_key.text:
+                    raise Exception("Failed to get API key from Panorama. Check credentials.")
+
+                cmd = "<show><devices><connected></connected></devices></show>"
+                response = requests.get(f"https://{pano_host}/api/?type=op&cmd={cmd}&key={api_key.text}", verify=False, timeout=20)
+                response.raise_for_status()
+
+                device_tree = ET.fromstring(response.content)
+                ips_to_import = [dev.findtext('ip-address') for dev in device_tree.findall('.//devices/entry')]
+                
+                with db_lock:
+                    for ip in ips_to_import:
+                        if ip:
+                            conn.execute('INSERT OR IGNORE INTO firewalls (ip_address) VALUES (?)', (ip,))
+                    conn.commit()
+                print(f"Panorama import successful. Processed {len(ips_to_import)} devices.")
+            except Exception as e:
+                print(f"Error during Panorama import: {e}")
+            finally:
+                conn.close()
+    finally:
+        print("Background Panorama import worker finished.")
+        background_task_running.clear()
 
 @app.route('/import_from_panorama', methods=['POST'])
 def import_from_panorama():
@@ -933,53 +956,55 @@ def delete_model():
 def _refresh_specs_worker():
     """Worker function to run the spec refresh in a background thread."""
     background_task_running.set()
-    print("Background spec refresh worker started.")
-    with app.app_context(): # Need app context to access flask.flash and url_for
-        key = load_key()
-        conn = get_db_connection()
-        settings_rows = conn.execute("SELECT key, value FROM settings").fetchall()
-        settings = {row['key']: row['value'] for row in settings_rows}
-        fw_user = settings.get('FW_USER')
-        encrypted_pass = settings.get('FW_PASSWORD')
+    try:
+        print("Background spec refresh worker started.")
+        with app.app_context(): # Need app context to access flask.flash and url_for
+            key = load_key()
+            conn = get_db_connection()
+            settings_rows = conn.execute("SELECT key, value FROM settings").fetchall()
+            settings = {row['key']: row['value'] for row in settings_rows}
+            fw_user = settings.get('FW_USER')
+            encrypted_pass = settings.get('FW_PASSWORD')
 
-        if not fw_user or not encrypted_pass:
-            print("Spec Refresh Worker: Credentials not set.")
-            conn.close()
-            return
+            if not fw_user or not encrypted_pass:
+                print("Spec Refresh Worker: Credentials not set.")
+                conn.close()
+                return
 
-        fw_password = decrypt_message(encrypted_pass, key)
-        firewalls = conn.execute('SELECT id, ip_address FROM firewalls').fetchall()
-        
-        if not firewalls:
-            conn.close()
-            return
-
-        hosts_to_poll = [fw['ip_address'] for fw in firewalls]
-        init_tasks = [(host, fw_user, fw_password) for host in hosts_to_poll]
-        api_keys = {}
-        try:
-            with multiprocessing.Pool(processes=len(init_tasks)) as pool:
-                for res in pool.map(get_api_key, init_tasks):
-                    if res['status'] == 'success':
-                        api_keys[res['host']] = res['api_key']
-        except Exception as e:
-            print(f"Spec Refresh Worker Error: {e}")
-            conn.close()
-            return
-
-        with db_lock:
-            for fw in firewalls:
-                if fw['ip_address'] in api_keys:
-                    parse_and_store_fw_details(conn, fw['id'], api_keys[fw['ip_address']])
+            fw_password = decrypt_message(encrypted_pass, key)
+            firewalls = conn.execute('SELECT id, ip_address FROM firewalls').fetchall()
             
-            # ** NEW: Re-evaluate alerts since max capacities may have changed **
-            alert_threshold = int(settings.get('ALERT_THRESHOLD', 80))
-            _re_evaluate_alerts(conn, alert_threshold)
+            if not firewalls:
+                conn.close()
+                return
 
-            conn.commit()
-        conn.close()
-    print("Background spec refresh worker finished.")
-    background_task_running.clear()
+            hosts_to_poll = [fw['ip_address'] for fw in firewalls]
+            init_tasks = [(host, fw_user, fw_password) for host in hosts_to_poll]
+            api_keys = {}
+            try:
+                with multiprocessing.Pool(processes=len(init_tasks)) as pool:
+                    for res in pool.map(get_api_key, init_tasks):
+                        if res['status'] == 'success':
+                            api_keys[res['host']] = res['api_key']
+            except Exception as e:
+                print(f"Spec Refresh Worker Error: {e}")
+                conn.close()
+                return
+
+            with db_lock:
+                for fw in firewalls:
+                    if fw['ip_address'] in api_keys:
+                        parse_and_store_fw_details(conn, fw['id'], api_keys[fw['ip_address']])
+                
+                # ** NEW: Re-evaluate alerts since max capacities may have changed **
+                alert_threshold = int(settings.get('ALERT_THRESHOLD', 80))
+                _re_evaluate_alerts(conn, alert_threshold)
+
+                conn.commit()
+            conn.close()
+    finally:
+        print("Background spec refresh worker finished.")
+        background_task_running.clear()
 
 @app.route('/refresh_specs', methods=['POST'])
 def refresh_specs():
@@ -1005,62 +1030,64 @@ def refresh_specs():
 def _refresh_capacity_worker():
     """Worker function to run the capacity refresh in a background thread."""
     background_task_running.set()
-    print("Background capacity refresh worker started.")
-    with app.app_context():
-        key = load_key()
-        conn = get_db_connection()
-        settings_rows = conn.execute("SELECT key, value FROM settings").fetchall()
-        settings = {row['key']: row['value'] for row in settings_rows}
-        fw_user = settings.get('FW_USER')
-        encrypted_pass = settings.get('FW_PASSWORD')
+    try:
+        print("Background capacity refresh worker started.")
+        with app.app_context():
+            key = load_key()
+            conn = get_db_connection()
+            settings_rows = conn.execute("SELECT key, value FROM settings").fetchall()
+            settings = {row['key']: row['value'] for row in settings_rows}
+            fw_user = settings.get('FW_USER')
+            encrypted_pass = settings.get('FW_PASSWORD')
 
-        if not fw_user or not encrypted_pass:
-            print("Capacity Refresh Worker: Credentials not set.")
+            if not fw_user or not encrypted_pass:
+                print("Capacity Refresh Worker: Credentials not set.")
+                conn.close()
+                return
+
+            fw_password = decrypt_message(encrypted_pass, key)
+            firewalls = conn.execute('SELECT id, ip_address FROM firewalls').fetchall()
+            
+            if not firewalls:
+                conn.close()
+                return
+
+            hosts_to_poll = [fw['ip_address'] for fw in firewalls]
+            init_tasks = [(host, fw_user, fw_password) for host in hosts_to_poll]
+            api_keys = {}
+            try:
+                with multiprocessing.Pool(processes=len(init_tasks)) as pool:
+                    for res in pool.map(get_api_key, init_tasks):
+                        if res['status'] == 'success':
+                            api_keys[res['host']] = res['api_key']
+            except Exception as e:
+                print(f"Capacity Refresh Worker Error: {e}")
+                conn.close()
+                return
+
+            with db_lock:
+                # ** FIX: Join with firewall_models to get all max capacity values in one go **
+                details_map = {row['firewall_id']: dict(row) for row in conn.execute("SELECT fd.*, fm.max_ssl_decrypt_sessions FROM firewall_details fd JOIN firewalls f ON f.id = fd.firewall_id LEFT JOIN firewall_models fm ON f.model = fm.model").fetchall()}
+                for fw in firewalls:
+                    if fw['ip_address'] in api_keys:
+                        usage_data = poll_current_usage(conn, fw['id'], fw['ip_address'], api_keys[fw['ip_address']])
+                        if usage_data:
+                            # ** FIX: Use the full, correct INSERT statement **
+                            conn.execute("""
+                                INSERT OR REPLACE INTO firewall_current_usage 
+                                (firewall_id, last_updated, current_rules, current_nat_rules, current_address_objects, current_service_objects, current_ipsec_tunnels, current_routes, current_mroutes, current_arp_entries, current_bfd_sessions, current_dns_cache, current_registered_ips, current_ssl_decrypt_sessions) 
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
+                            """, (fw['id'], datetime.now().isoformat(sep=' ', timespec='microseconds'), usage_data.get('rules'), usage_data.get('nat-rules'), usage_data.get('address'), usage_data.get('service'), usage_data.get('ipsec'), usage_data.get('routes', 0), usage_data.get('mroutes'), usage_data.get('arp'), usage_data.get('bfd'), usage_data.get('dns_cache'), usage_data.get('registered_ips'), usage_data.get('ssl_decrypt_sessions')))
+                            
+                # After polling all firewalls, re-evaluate alerts with the latest data
+                alert_threshold = int(settings.get('ALERT_THRESHOLD', 80))
+                _re_evaluate_alerts(conn, alert_threshold)
+
+                conn.commit()
             conn.close()
-            return
-
-        fw_password = decrypt_message(encrypted_pass, key)
-        firewalls = conn.execute('SELECT id, ip_address FROM firewalls').fetchall()
-        
-        if not firewalls:
-            conn.close()
-            return
-
-        hosts_to_poll = [fw['ip_address'] for fw in firewalls]
-        init_tasks = [(host, fw_user, fw_password) for host in hosts_to_poll]
-        api_keys = {}
-        try:
-            with multiprocessing.Pool(processes=len(init_tasks)) as pool:
-                for res in pool.map(get_api_key, init_tasks):
-                    if res['status'] == 'success':
-                        api_keys[res['host']] = res['api_key']
-        except Exception as e:
-            print(f"Capacity Refresh Worker Error: {e}")
-            conn.close()
-            return
-
-        with db_lock:
-            # ** FIX: Join with firewall_models to get all max capacity values in one go **
-            details_map = {row['firewall_id']: dict(row) for row in conn.execute("SELECT fd.*, fm.max_ssl_decrypt_sessions FROM firewall_details fd JOIN firewalls f ON f.id = fd.firewall_id LEFT JOIN firewall_models fm ON f.model = fm.model").fetchall()}
-            for fw in firewalls:
-                if fw['ip_address'] in api_keys:
-                    usage_data = poll_current_usage(conn, fw['id'], fw['ip_address'], api_keys[fw['ip_address']])
-                    if usage_data:
-                        # ** FIX: Use the full, correct INSERT statement **
-                        conn.execute("""
-                            INSERT OR REPLACE INTO firewall_current_usage 
-                            (firewall_id, last_updated, current_rules, current_nat_rules, current_address_objects, current_service_objects, current_ipsec_tunnels, current_routes, current_mroutes, current_arp_entries, current_bfd_sessions, current_dns_cache, current_registered_ips, current_ssl_decrypt_sessions) 
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
-                        """, (fw['id'], datetime.now().isoformat(sep=' ', timespec='microseconds'), usage_data.get('rules'), usage_data.get('nat-rules'), usage_data.get('address'), usage_data.get('service'), usage_data.get('ipsec'), usage_data.get('routes', 0), usage_data.get('mroutes'), usage_data.get('arp'), usage_data.get('bfd'), usage_data.get('dns_cache'), usage_data.get('registered_ips'), usage_data.get('ssl_decrypt_sessions')))
-                        
-            # After polling all firewalls, re-evaluate alerts with the latest data
-            alert_threshold = int(settings.get('ALERT_THRESHOLD', 80))
-            _re_evaluate_alerts(conn, alert_threshold)
-
-            conn.commit()
-        conn.close()
-    print("Background capacity refresh worker finished.")
-    background_task_running.clear()
+    finally:
+        print("Background capacity refresh worker finished.")
+        background_task_running.clear()
 
 @app.route('/refresh_capacity', methods=['POST'])
 def refresh_capacity():
@@ -1176,6 +1203,30 @@ def poll_current_usage(conn, firewall_id, host, api_key):
     except Exception as e:
         print(f"Error polling multicast route stat for {host}: {e}")
         usage_data['mroutes'] = None
+
+    # ** FIX: Re-introduce conditional BFD session polling **
+    try:
+        fw_row = conn.execute("SELECT sw_version FROM firewalls WHERE id = ?", (firewall_id,)).fetchone()
+        sw_version_str = fw_row['sw_version'] if fw_row else '0.0.0'
+        major_version = int(sw_version_str.split('.')[0])
+
+        if major_version >= 11:
+            if adv_routing_enabled:
+                bfd_cmd = '<show><advanced-routing><bfd><summary/></bfd></advanced-routing></show>'
+            else:
+                bfd_cmd = '<show><routing><bfd><summary/></bfd></routing></show>'
+            
+            params = {'type': 'op', 'cmd': bfd_cmd, 'key': api_key}
+            response = requests.get(f"https://{host}/api/", params=params, verify=False, timeout=15)
+            response.raise_for_status()
+            root = ET.fromstring(response.content)
+            usage_data['bfd'] = len(root.findall('.//result/entry'))
+        else:
+            # BFD summary command not supported on older versions
+            usage_data['bfd'] = 0
+    except Exception as e:
+        print(f"Error polling BFD stat for {host}: {e}")
+        usage_data['bfd'] = None
     
     # Poll op-based stats
     for key, (cmd, find_path) in commands['op'].items():
@@ -1206,26 +1257,6 @@ def poll_current_usage(conn, firewall_id, host, api_key):
                     if len(parts) > 1 and parts[1].strip().isdigit():
                         count = int(parts[1].strip())
                 usage_data[key] = count
-            elif key == 'bfd':
-                # ** NEW: Conditional BFD session polling **
-                fw_row = conn.execute("SELECT sw_version FROM firewalls WHERE id = ?", (firewall_id,)).fetchone()
-                sw_version_str = fw_row['sw_version'] if fw_row else '0.0.0'
-                major_version = int(sw_version_str.split('.')[0])
-
-                if major_version >= 11:
-                    if adv_routing_enabled:
-                        bfd_cmd = '<show><advanced-routing><bfd><summary/></bfd></advanced-routing></show>'
-                    else:
-                        bfd_cmd = '<show><routing><bfd><summary/></bfd></routing></show>'
-                    
-                    params = {'type': 'op', 'cmd': bfd_cmd, 'key': api_key}
-                    response = requests.get(f"https://{host}/api/", params=params, verify=False, timeout=15)
-                    response.raise_for_status()
-                    root = ET.fromstring(response.content)
-                    usage_data[key] = len(root.findall(find_path))
-                else:
-                    # BFD summary command not supported on older versions
-                    usage_data[key] = 0
             else:
                 response = requests.get(f"https://{host}/api/", params=params, verify=False, timeout=15)
                 response.raise_for_status()

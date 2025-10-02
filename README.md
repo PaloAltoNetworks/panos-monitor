@@ -2,18 +2,19 @@
 
 A simple, web-based monitoring dashboard for Palo Alto Networks firewalls. This tool polls devices for session count and throughput, stores the data in a local SQLite database, and provides a web interface to view historical performance graphs and export reports.
 
-![Dashboard Screenshot](docs/dashboard-screenshot.png)
+![Dashboard Screenshot](docs/dashboard-screenshot.png)  
+*Note: The UI has been updated with a new branded theme. This screenshot should be updated to reflect the new look.*
 
 ---
 ## Features ✨
 
 * **Web-Based Dashboard:** A clean, centralized dashboard to view the latest status for all monitored firewalls, including their **hostname**, **model**, **PAN-OS version**, status, CPU/DP load, and aggregate throughput.
 * **Capacity Dashboard:** Provides an at-a-glance view of current object usage (rules, routes, tunnels, etc.) against the device's maximum capacity, with color-coded utilization percentages to highlight potential issues.
-* **Visual Alerting:** A dedicated "Alerts" page highlights any capacity metric that exceeds an 80% utilization threshold, with the ability to acknowledge and clear alerts.
+* **Configurable Alerting:** A dedicated "Alerts" page highlights any capacity metric that exceeds a user-configurable threshold (set on the Settings page), with the ability to bulk-acknowledge alerts.
 * **Historical Graphing:** Click on any firewall to view detailed historical graphs for its key performance metrics.
 * **Selectable Timeframes:** View graphs and summary data for various timeframes, from the last 5 minutes to the last 30 days.
 * **Detailed Device Specifications:** Automatically polls and displays a comprehensive list of over 35 detailed capacity limits (max sessions, max rules, max tunnels, etc.) for each firewall.
-* **Upgrade Advisor:** Analyzes peak usage against known model specifications and recommends a hardware upgrade if utilization exceeds an 80% threshold. The logic recommends the next model up within the same hardware generation, providing a practical upgrade path. If a device is already the top model in its series, it will recommend a general upgrade.
+* **Upgrade Advisor:** Analyzes peak usage against known model specifications and recommends a hardware upgrade if utilization exceeds the configured alert threshold. The logic recommends the next model up within the same hardware generation, providing a practical upgrade path.
 * **Peak Statistics Summary:** View a table of peak values (max sessions, highest throughput, max CPU/DP load) for each firewall over your selected timeframe.
 * **Asynchronous Reporting & Downloads:**
     * A dedicated "Downloads" page for generating and downloading reports.
@@ -23,9 +24,9 @@ A simple, web-based monitoring dashboard for Palo Alto Networks firewalls. This 
 * **Intelligent Discovery & Polling:**
     * Automatically discovers and saves the **hostname**, **model**, and **PAN-OS version** for newly added firewalls.
     * Intelligently uses the correct API commands to get route counts based on whether a firewall has the advanced routing engine enabled.
-    * Asynchronous background jobs for refreshing capacity and spec data, ensuring a responsive UI.
+    * Asynchronous background jobs for all long-running tasks (data refresh, Panorama import, report generation) with a global status indicator in the navigation bar.
 * **Panorama Integration:** Import all connected firewalls directly from your Panorama instance with a single click.
-* **Dynamic Model Management:** Add, view, and delete firewall hardware specifications directly from the web interface, without editing any files.
+* **Model Specifications Management:** Add, view, and delete hardware specifications for different firewall models from a dedicated page.
 * **Multi-Firewall Support:** Monitor dozens of firewalls. Firewalls can be added individually or bulk-imported from a text file.
 * **Persistent Storage:** Uses a local SQLite database (`monitoring.db`) to store all configuration and historical statistics.
 * **Web-Based Configuration:** Easily configure API credentials and the polling interval from a dedicated Settings page in the web UI.
@@ -144,8 +145,8 @@ On the first run, the application will automatically create a `monitoring.db` da
 
 ### 2. Initial Configuration
 
-1.  Open your web browser and navigate to `http://127.0.0.1:5000`.
-2.  Navigate to the **Settings** page using the link in the navigation bar. The application runs on port **4000**, so the URL will be `http://<your-server-ip>:4000`.
+1.  Open your web browser and navigate to `http://127.0.0.1:4000`.
+2.  Navigate to the **Settings** page using the link in the navigation bar. The application runs on port **4000** by default, so the URL will be `http://<your-server-ip>:4000`.
 3.  Fill in the **Firewall Polling Settings**. These are the API credentials the poller will use to connect to individual firewalls.
 4.  Fill in the **Panorama Import Settings**. These are the credentials for your Panorama instance, used only for importing devices.
 5.  Set the **Polling Interval** and click **Save Settings**.
@@ -159,9 +160,9 @@ Navigate to the **Manage Firewalls** page. You have three options:
 2.  **Add Single Firewall:** Enter an IP address manually.
 3.  **Import from File:** Upload a `.txt` file with one IP address per line.
 
-### 4. Managing Firewall Models
+### 4. Managing Model Specifications
 
-Navigate to the **Manage Models** page. Here you can add new firewall models or delete existing ones. This data is used by the Upgrade Advisor. On first run, the application will automatically import a default list of models.
+Navigate to the **Model Specs** page. Here you can add new firewall models or delete existing ones. This data is used by the Upgrade Advisor. On first run, the application will automatically import a default list of models.
 
 The background poller will automatically detect the model of newly added firewalls on its next cycle.
 
@@ -179,7 +180,7 @@ The background poller will automatically detect the model of newly added firewal
 ### 7. Exporting Data
 
 * **CSV:** On any firewall's detail page, export the summary table to a CSV file by clicking the **'Export Table to CSV'** button.
-* **PDF:** Navigate to the **Downloads** page. Here you can generate new reports (Capacity, Table Only, Graphs Only, Combined) across multiple timeframes. Reports are generated in the background and will appear in the "Available Reports" list when ready to download.
+* **PDF:** Navigate to the **Reports** page. Here you can generate new reports (Capacity, Table Only, Graphs Only, Combined) across multiple timeframes. Reports are generated in the background and will appear in the "Available Reports" list when ready to download.
 
 ---
 ## How It Works

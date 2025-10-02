@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="{{ current_theme }}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -111,6 +111,12 @@
             color: #ffffff;
         }
 
+        /* ** NEW: Style for the dark mode toggle switch ** */
+        #theme-switch:checked {
+            background-color: #ff4500;
+            border-color: #ff4500;
+        }
+
         /* ** NEW: Pulsating animation for the status indicator ** */
         @keyframes pulse {
             0% { opacity: 1; }
@@ -142,6 +148,11 @@
                 <li><a href="{{ url_for('manage_firewalls') }}" {% if request.endpoint == 'manage_firewalls' %}aria-current="page"{% endif %}>Manage Firewalls</a></li>
                 <li><a href="{{ url_for('model_specs') }}" {% if request.endpoint == 'model_specs' %}aria-current="page"{% endif %}>Model Specs</a></li>
                 <li><a href="{{ url_for('settings') }}" {% if request.endpoint == 'settings' %}aria-current="page"{% endif %}>Settings</a></li>
+                <li>
+                    <label for="theme-switch" style="margin-bottom: 0; display: flex; align-items: center;">
+                        <input type="checkbox" id="theme-switch" name="theme-switch" role="switch" style="margin-right: 0.5rem;">
+                    </label>
+                </li>
                 {# ** NEW: Background Task Status Indicator (Moved) ** #}
                 {% if background_task_is_running %}
                 <li><span aria-busy="true" class="status-indicator" style="font-size: 0.9rem;">Refreshing data...</span></li>
@@ -172,6 +183,29 @@
             }, 5000);
         </script>
         {% endif %}
+
+        {# ** NEW: Dark Mode Toggle Script ** #}
+        <script>
+            document.addEventListener('DOMContentLoaded', () => {
+                const themeSwitch = document.getElementById('theme-switch');
+                const html = document.documentElement;
+
+                // Set the initial state of the toggle based on the server-rendered theme
+                themeSwitch.checked = html.getAttribute('data-theme') === 'dark';
+
+                themeSwitch.addEventListener('change', () => {
+                    const newTheme = themeSwitch.checked ? 'dark' : 'light';
+                    html.setAttribute('data-theme', newTheme);
+
+                    // Send the new theme to the server to save it
+                    fetch("{{ url_for('toggle_theme') }}", {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ theme: newTheme })
+                    });
+                });
+            });
+        </script>
     </main>
   </body>
 </html>
