@@ -54,7 +54,7 @@
                 <label for="alert_threshold">Capacity Alert Threshold (%)
                     <input type="number" id="alert_threshold" name="alert_threshold" value="{{ settings.get('ALERT_THRESHOLD', 80) }}" required min="1" max="99">
                 </label>
-                <small>Generate an alert when any capacity metric exceeds this utilization percentage.</small>
+                <small>Generate an alert when any capacity metric exceeds this utilization percentage. Existing data will be re-evaluated upon saving.</small>
             </fieldset>
 
             <button type="submit">Save Settings</button>

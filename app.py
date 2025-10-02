@@ -455,6 +455,10 @@ def settings():
                      ('ALERT_THRESHOLD', flask.request.form['alert_threshold']))
         
         conn.commit()
+
+        # ** NEW: Re-evaluate alerts with the new threshold **
+        _re_evaluate_alerts(conn, int(flask.request.form['alert_threshold']))
+
         flask.flash("Settings saved successfully!")
         return flask.redirect(flask.url_for('settings'))
 
@@ -462,6 +466,45 @@ def settings():
     settings_data = {row['key']: row['value'] for row in conn.execute("SELECT key, value FROM settings").fetchall()}
     conn.close()
     return flask.render_template('settings.html', settings=settings_data)
+
+def _re_evaluate_alerts(conn, alert_threshold):
+    """Re-evaluates all current usage data against a given threshold and creates alerts."""
+    print(f"Re-evaluating alerts with threshold: {alert_threshold}%")
+    # Get all current usage and max capacity data
+    firewalls_data = conn.execute("""
+        SELECT 
+            f.id as firewall_id, f.model,
+            m.max_ssl_decrypt_sessions,
+            d.*, 
+            u.*
+        FROM firewalls f
+        LEFT JOIN firewall_models m ON f.model = m.model
+        LEFT JOIN firewall_details d ON f.id = d.firewall_id
+        LEFT JOIN firewall_current_usage u ON f.id = u.firewall_id
+    """).fetchall()
+
+    metrics_to_check = [
+        ('Security Rules', 'current_rules', 'max_rules'), ('NAT Rules', 'current_nat_rules', 'max_nat_rules'), ('SSL Decrypt Sessions', 'current_ssl_decrypt_sessions', 'max_ssl_decrypt_sessions'),
+        ('Address Objects', 'current_address_objects', 'max_address_objects'), ('Service Objects', 'current_service_objects', 'max_service_objects'),
+        ('IPsec Tunnels', 'current_ipsec_tunnels', 'max_ipsec_tunnels'), ('Routes', 'current_routes', 'max_routes'),
+        ('Multicast Routes', 'current_mroutes', 'max_mroutes'), ('ARP Entries', 'current_arp_entries', 'max_arp_entries'),
+        ('BFD Sessions', 'current_bfd_sessions', 'max_bfd_sessions'), ('DNS Cache Entries', 'current_dns_cache', 'max_dns_cache'),
+        ('Registered IPs (User-ID)', 'current_registered_ips', 'max_registered_ips')
+    ]
+
+    for fw in firewalls_data:
+        if not fw['last_updated']: continue # Skip if no usage data
+        for label, current_key, max_key in metrics_to_check:
+            current_val = fw[current_key]
+            max_val = fw[max_key]
+            if current_val is not None and max_val is not None and max_val > 0:
+                utilization = (current_val / max_val) * 100
+                if utilization >= alert_threshold:
+                    exists = conn.execute("SELECT 1 FROM alerts WHERE firewall_id = ? AND metric_name = ? AND acknowledged = 0", (fw['firewall_id'], label)).fetchone()
+                    if not exists:
+                        conn.execute("INSERT INTO alerts (firewall_id, metric_name, utilization, timestamp) VALUES (?, ?, ?, ?)",
+                                     (fw['firewall_id'], label, utilization, datetime.now()))
+    conn.commit()
 
 @app.route('/export/csv/<int:fw_id>')
 def export_csv(fw_id):
@@ -748,13 +791,17 @@ def alerts():
     conn.close()
     return flask.render_template('alerts.html', alerts=active_alerts, alert_threshold=alert_threshold)
 
-@app.route('/acknowledge_alert/<int:alert_id>', methods=['POST'])
-def acknowledge_alert(alert_id):
-    """Marks an alert as acknowledged."""
-    conn = get_db_connection()
-    conn.execute("UPDATE alerts SET acknowledged = 1 WHERE id = ?", (alert_id,))
-    conn.commit()
-    conn.close()
+@app.route('/acknowledge_alerts', methods=['POST'])
+def acknowledge_alerts():
+    """Marks multiple alerts as acknowledged based on checkbox selections."""
+    alert_ids_to_ack = flask.request.form.getlist('alert_ids')
+    if alert_ids_to_ack:
+        conn = get_db_connection()
+        # Prepare a list of tuples for executemany
+        conn.executemany("UPDATE alerts SET acknowledged = 1 WHERE id = ?", [(id,) for id in alert_ids_to_ack])
+        conn.commit()
+        conn.close()
+        flask.flash(f"Acknowledged {len(alert_ids_to_ack)} alert(s).", "success")
     return flask.redirect(flask.url_for('alerts'))
 
 @app.route('/add_firewall', methods=['POST'])
@@ -923,6 +970,11 @@ def _refresh_specs_worker():
             for fw in firewalls:
                 if fw['ip_address'] in api_keys:
                     parse_and_store_fw_details(conn, fw['id'], api_keys[fw['ip_address']])
+            
+            # ** NEW: Re-evaluate alerts since max capacities may have changed **
+            alert_threshold = int(settings.get('ALERT_THRESHOLD', 80))
+            _re_evaluate_alerts(conn, alert_threshold)
+
             conn.commit()
         conn.close()
     print("Background spec refresh worker finished.")
@@ -1000,28 +1052,10 @@ def _refresh_capacity_worker():
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
                         """, (fw['id'], datetime.now().isoformat(sep=' ', timespec='microseconds'), usage_data.get('rules'), usage_data.get('nat-rules'), usage_data.get('address'), usage_data.get('service'), usage_data.get('ipsec'), usage_data.get('routes', 0), usage_data.get('mroutes'), usage_data.get('arp'), usage_data.get('bfd'), usage_data.get('dns_cache'), usage_data.get('registered_ips'), usage_data.get('ssl_decrypt_sessions')))
                         
-                        # ** FIX: Add the alert checking logic to the worker **
-                        fw_details = details_map.get(fw['id'])
-                        if fw_details:
-                            alert_threshold = int(settings.get('ALERT_THRESHOLD', 80))
-                            metrics_to_check = [
-                                ('Security Rules', 'rules', 'max_rules'), ('NAT Rules', 'nat-rules', 'max_nat_rules'), ('SSL Decrypt Sessions', 'ssl_decrypt_sessions', 'max_ssl_decrypt_sessions'),
-                                ('Address Objects', 'address', 'max_address_objects'), ('Service Objects', 'service', 'max_service_objects'),
-                                ('IPsec Tunnels', 'ipsec', 'max_ipsec_tunnels'), ('Routes', 'routes', 'max_routes'),
-                                ('Multicast Routes', 'mroutes', 'max_mroutes'), ('ARP Entries', 'arp', 'max_arp_entries'),
-                                ('BFD Sessions', 'bfd', 'max_bfd_sessions'), ('DNS Cache Entries', 'dns_cache', 'max_dns_cache'),
-                                ('Registered IPs (User-ID)', 'registered_ips', 'max_registered_ips')
-                            ]
-                            for label, current_key, max_key in metrics_to_check:
-                                current_val = usage_data.get(current_key)
-                                max_val = fw_details.get(max_key)
-                                if current_val is not None and max_val is not None and max_val > 0:
-                                    utilization = (current_val / max_val) * 100
-                                    if utilization >= alert_threshold:
-                                        exists = conn.execute("SELECT 1 FROM alerts WHERE firewall_id = ? AND metric_name = ? AND acknowledged = 0", (fw['id'], label)).fetchone()
-                                        if not exists:
-                                            conn.execute("INSERT INTO alerts (firewall_id, metric_name, utilization, timestamp) VALUES (?, ?, ?, ?)",
-                                                         (fw['id'], label, utilization, datetime.now()))
+            # After polling all firewalls, re-evaluate alerts with the latest data
+            alert_threshold = int(settings.get('ALERT_THRESHOLD', 80))
+            _re_evaluate_alerts(conn, alert_threshold)
+
             conn.commit()
         conn.close()
     print("Background capacity refresh worker finished.")
