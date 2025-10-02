@@ -12,7 +12,7 @@
 <h2>Manage Firewalls</h2>
 
 <div style="margin-bottom: 1.5rem;">
-    <a role="button" href="{{ url_for('downloads') }}">Generate &amp; Download Reports</a>
+    <a role="button" href="{{ url_for('reports') }}">Generate &amp; Download Reports</a>
 </div>
 
 <div class="grid">
@@ -78,13 +78,4 @@
         </tbody>
     </table>
 </div>
-
-{% if auto_refresh %}
-<script>
-    // After 15 seconds, reload the page to clear the flash message and show updated data
-    setTimeout(() => {
-        window.location.href = window.location.pathname;
-    }, 15000);
-</script>
-{% endif %}
 {% endblock %}

@@ -1,0 +1,149 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+  /* Add a bottom margin to the report generation buttons to create space when they wrap */
+  .report-buttons a[role="button"] {
+    margin-bottom: 0.5rem;
+  }
+</style>
+
+<style>
+  main.container {
+    max-width: 1600px;
+  }
+</style>
+
+<h2>Reports</h2>
+
+<div class="grid">
+    <article>
+        <h4>Generate New Report</h4>
+        <p>Select a predefined timeframe or a custom date range to generate a new PDF report. Reports are generated in the background and will appear in the "Available Reports" list when ready.</p>
+        
+        <hr>
+        <h6>Custom Date Range Report</h6>
+        <form action="{{ url_for('export_pdf') }}" method="post">
+            <div class="grid">
+                <label for="start_date">Start Date
+                    <input type="date" id="start_date" name="start_date" required>
+                </label>
+                <label for="end_date">End Date
+                    <input type="date" id="end_date" name="end_date" required>
+                </label>
+                <label for="report_type">Report Type
+                    <select id="report_type" name="report_type" required>
+                        <option value="combined">Combined (Table, Capacity, Graphs)</option>
+                        <option value="table_only">Table Only</option>
+                        <option value="graphs_only">Graphs Only</option>
+                    </select>
+                </label>
+            </div>
+            <button type="submit">Generate Custom Report</button>
+        </form>
+        <hr>
+        <h6>Predefined Timeframe Reports</h6>
+        
+        <div class="grid">
+            <div>
+                <small><b>Capacity Report</b></small>
+                <p class="report-buttons"><a href="{{ url_for('export_pdf', type='capacity') }}" role="button">Generate Now</a></p>
+                <hr>
+                <small><b>Table Only Report</b></small>
+                <p class="report-buttons">
+                    <a href="{{ url_for('export_pdf', timespan='5m', type='table_only') }}" role="button" class="outline">5 Mins</a>
+                    <a href="{{ url_for('export_pdf', timespan='1h', type='table_only') }}" role="button" class="outline">1 Hour</a>
+                    <a href="{{ url_for('export_pdf', timespan='6h', type='table_only') }}" role="button" class="outline">6 Hours</a>
+                    <a href="{{ url_for('export_pdf', timespan='24h', type='table_only') }}" role="button" class="outline">24 Hours</a>
+                    <a href="{{ url_for('export_pdf', timespan='7d', type='table_only') }}" role="button" class="outline">7 Days</a>
+                    <a href="{{ url_for('export_pdf', timespan='30d', type='table_only') }}" role="button" class="outline">30 Days</a>
+                </p>
+            </div>
+            <div>
+                <small><b>Graphs Only Report</b></small>
+                <p class="report-buttons">
+                    <a href="{{ url_for('export_pdf', timespan='5m', type='graphs_only') }}" role="button" class="outline">5 Mins</a>
+                    <a href="{{ url_for('export_pdf', timespan='1h', type='graphs_only') }}" role="button" class="outline">1 Hour</a>
+                    <a href="{{ url_for('export_pdf', timespan='6h', type='graphs_only') }}" role="button" class="outline">6 Hours</a>
+                    <a href="{{ url_for('export_pdf', timespan='24h', type='graphs_only') }}" role="button" class="outline">24 Hours</a>
+                    <a href="{{ url_for('export_pdf', timespan='7d', type='graphs_only') }}" role="button" class="outline">7 Days</a>
+                    <a href="{{ url_for('export_pdf', timespan='30d', type='graphs_only') }}" role="button" class="outline">30 Days</a>
+                </p>
+                <hr>
+                <small><b>Combined Report</b></small>
+                <p class="report-buttons">
+                    <a href="{{ url_for('export_pdf', timespan='5m', type='combined') }}" role="button" class="outline">5 Mins</a>
+                    <a href="{{ url_for('export_pdf', timespan='1h', type='combined') }}" role="button" class="outline">1 Hour</a>
+                    <a href="{{ url_for('export_pdf', timespan='6h', type='combined') }}" role="button" class="outline">6 Hours</a>
+                    <a href="{{ url_for('export_pdf', timespan='24h', type='combined') }}" role="button" class="outline">24 Hours</a>
+                    <a href="{{ url_for('export_pdf', timespan='7d', type='combined') }}" role="button" class="outline">7 Days</a>
+                    <a href="{{ url_for('export_pdf', timespan='30d', type='combined') }}" role="button" class="outline">30 Days</a>
+                </p>
+            </div>
+        </div>
+    </article>
+
+    <article>
+        <h4>Available Reports</h4>
+        <p>Reports are automatically deleted after one hour.</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Report Name</th>
+                    <th>Generated</th>
+                    <th style="min-width: 250px;">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for job in jobs|reverse %}
+                <tr>
+                    <td>
+                        {% if job.name|length > 35 %}
+                            {{ job.name[:32] }}...
+                        {% else %}
+                            {{ job.name }}
+                        {% endif %}
+                    </td>
+                    <td>{{ job.timestamp.replace('T', ' ').split('.')[0] }}</td>
+                    <td>
+                        {% if job.status == 'ready' %}
+                            <div class="grid" style="margin-bottom: 0; grid-template-columns: 1fr 1fr;">
+                                <a href="{{ url_for('static', filename='reports/' + job.id + '.pdf') }}" role="button" download="{{ job.name }}" style="margin-bottom: 0;">Download</a>
+                                <form action="{{ url_for('delete_report', job_id=job.id) }}" method="post" style="margin-bottom: 0;">
+                                    <button type="submit" class="secondary outline" style="margin-bottom: 0;">Delete</button>
+                                </form>
+                            </div>
+                        {% elif job.status == 'failed' %}
+                            <div class="grid" style="margin-bottom: 0; grid-template-columns: 1fr 1fr;">
+                                <button class="secondary" disabled style="margin-bottom: 0;">Failed</button>
+                                <form action="{{ url_for('delete_report', job_id=job.id) }}" method="post" style="margin-bottom: 0;"><button type="submit" class="secondary outline" style="margin-bottom: 0;">Delete</button></form>
+                            </div>
+                        {% else %}
+                            <div class="grid" style="margin-bottom: 0; grid-template-columns: 1fr 1fr;">
+                                <button aria-busy="true" style="margin-bottom: 0;">Generating...</button>
+                                <form action="{{ url_for('delete_report', job_id=job.id) }}" method="post" style="margin-bottom: 0;">
+                                    <button type="submit" class="secondary outline" style="margin-bottom: 0;">Delete</button>
+                                </form>
+                            </div>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="3">No reports have been generated recently.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </article>
+</div>
+
+<script>
+    // Auto-refresh the page every 10 seconds if there are pending jobs
+    const hasPendingJobs = {{ (jobs|selectattr('status', 'equalto', 'pending')|list|length > 0)|tojson }};
+    if (hasPendingJobs) {
+        setTimeout(() => {
+            window.location.reload();
+        }, 5000);
+    }
+</script>
+
+{% endblock %}

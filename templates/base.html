@@ -46,23 +46,45 @@
             z-index: 1;
             background-color: var(--card-background-color); /* Match theme background */
         }
+
+        /* ** NEW: Make the active navigation link bold ** */
+        nav a[aria-current="page"] {
+            font-weight: bold;
+        }
+
+        /* ** NEW: Pulsating animation for the status indicator ** */
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+        .status-indicator {
+            color: red !important;
+            font-weight: bold !important;
+            animation: pulse 1.5s infinite;
+        }
     </style>
   </head>
   <body>
     <main class="container">
         <nav>
             <ul>
-                <li><strong>PAN-OS Monitor</strong></li>
+                <li><strong>PAN-OS Monitor</strong>
+                    {# ** NEW: Background Task Status Indicator (Moved) ** #}
+                    {% if background_task_is_running %}
+                    <span aria-busy="true" class="status-indicator" style="margin-left: 1rem; font-size: 0.9rem;">Refreshing data...</span>
+                    {% endif %}
+                </li>
             </ul>
             <ul>
-                <li><a href="{{ url_for('index') }}">Dashboard</a></li>
-                <li><a href="{{ url_for('manage_firewalls') }}">Manage Firewalls</a></li>
-                <li><a href="{{ url_for('manage_models') }}">Manage Models</a></li>
-                <li><a href="{{ url_for('advisor') }}">Upgrade Advisor</a></li>
-                <li><a href="{{ url_for('capacity_dashboard') }}">Capacity</a></li>
-                <li><a href="{{ url_for('alerts') }}">Alerts</a></li>
-                <li><a href="{{ url_for('downloads') }}">Downloads</a></li>
-                <li><a href="{{ url_for('settings') }}" role="button" class="secondary">Settings</a></li>
+                <li><a href="{{ url_for('index') }}" {% if request.endpoint == 'index' %}aria-current="page"{% endif %}>Dashboard</a></li>
+                <li><a href="{{ url_for('capacity_dashboard') }}" {% if request.endpoint == 'capacity_dashboard' %}aria-current="page"{% endif %}>Capacity</a></li>
+                <li><a href="{{ url_for('alerts') }}" {% if request.endpoint == 'alerts' %}aria-current="page"{% endif %}>Alerts</a></li>
+                <li><a href="{{ url_for('advisor') }}" {% if request.endpoint == 'advisor' %}aria-current="page"{% endif %}>Upgrade Advisor</a></li>
+                <li><a href="{{ url_for('reports') }}" {% if request.endpoint == 'reports' %}aria-current="page"{% endif %}>Reports</a></li>
+                <li><a href="{{ url_for('manage_firewalls') }}" {% if request.endpoint == 'manage_firewalls' %}aria-current="page"{% endif %}>Manage Firewalls</a></li>
+                <li><a href="{{ url_for('manage_models') }}" {% if request.endpoint == 'manage_models' %}aria-current="page"{% endif %}>Manage Models</a></li>
+                <li><a href="{{ url_for('settings') }}" {% if request.endpoint == 'settings' %}aria-current="page"{% endif %}>Settings</a></li>
             </ul>
         </nav>
         
@@ -78,6 +100,15 @@
 
         {% block content %}{% endblock %}
         
+        {# ** NEW: Auto-refresh script for background tasks ** #}
+        {% if background_task_is_running %}
+        <script>
+            // If a background task is running, reload the page every 5 seconds to update the status
+            setTimeout(() => {
+                window.location.reload();
+            }, 5000);
+        </script>
+        {% endif %}
     </main>
   </body>
 </html>

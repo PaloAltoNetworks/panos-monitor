@@ -45,6 +45,11 @@ app.secret_key = os.urandom(24)
 db_lock = threading.Lock()
 background_task_running = threading.Event()
 
+# --- NEW: Context processor to inject background task status into all templates ---
+@app.context_processor
+def inject_background_task_status():
+    return dict(background_task_is_running=background_task_running.is_set())
+
 # --- Database Functions ---
 def get_db_connection():
     conn = sqlite3.connect(DB_FILE, check_same_thread=False)
@@ -363,7 +368,13 @@ def index():
 @app.route('/advisor', methods=['GET', 'POST'])
 def advisor():
     results = None
-    selected_timespan = '7d'
+    # ** FIX: Fetch threshold on both GET and POST **
+    conn = get_db_connection()
+    settings = {row['key']: row['value'] for row in conn.execute("SELECT key, value FROM settings").fetchall()}
+    alert_threshold = int(settings.get('ALERT_THRESHOLD', 80))
+    conn.close()
+
+    selected_timespan = '7d' # Default value
     if flask.request.method == 'POST':
         selected_timespan = flask.request.form['timespan']
         time_modifier = {'7d': '-7 days', '30d': '-30 days'}.get(selected_timespan, '-7 days')
@@ -397,9 +408,9 @@ def advisor():
                 res['throughput_util'] = (peak_throughput_mbps / spec['max_throughput_mbps']) * 100 if spec['max_throughput_mbps'] > 0 else 0
 
                 res['recommendation'] = 'Sized Appropriately'
-                if res['session_util'] >= 80 or res['throughput_util'] >= 80:
+                if res['session_util'] >= alert_threshold or res['throughput_util'] >= alert_threshold:
                     current_generation = spec.get('generation', 'N/A')
-                    same_gen_models = sorted([s for s in specs_list if s.get('generation') == current_generation], key=lambda x: x['max_throughput_mbps'])
+                    same_gen_models = sorted([s for s in specs_list if s['generation'] == current_generation], key=lambda x: x['max_throughput_mbps'])
                     current_index = next((i for i, item in enumerate(same_gen_models) if item["model"] == fw['model']), -1)
 
                     if 0 <= current_index < len(same_gen_models) - 1:
@@ -412,7 +423,7 @@ def advisor():
             results.append(res)
         conn.close()
 
-    return flask.render_template('advisor.html', results=results, selected_timespan=selected_timespan)
+    return flask.render_template('advisor.html', results=results, selected_timespan=selected_timespan, alert_threshold=alert_threshold)
 
 @app.route('/settings', methods=['GET', 'POST'])
 def settings():
@@ -488,36 +499,45 @@ def export_csv(fw_id):
 def _generate_pdf_worker(report_type, job_id, timespan=None, start_date=None, end_date=None):
     """Worker function to generate PDF in the background."""
     print(f"Background PDF worker started for job {job_id}.")
-    with app.app_context():
-        try:
-            # Ensure the reports directory exists
-            reports_dir = os.path.join(app.static_folder, 'reports')
-            os.makedirs(reports_dir, exist_ok=True)
+    background_task_running.set()
+    try:
+        with app.app_context():
+            try:
+                # Ensure the reports directory exists
+                reports_dir = os.path.join(app.static_folder, 'reports')
+                os.makedirs(reports_dir, exist_ok=True)
 
-            pdf_data = report_generator.generate_report_pdf(DB_FILE, report_type, timespan=timespan, start_date=start_date, end_date=end_date)
-            if pdf_data:
-                file_path = os.path.join(reports_dir, f"{job_id}.pdf")
-                with open(file_path, 'wb') as f:
-                    f.write(pdf_data)
+                pdf_data = report_generator.generate_report_pdf(DB_FILE, report_type, timespan=timespan, start_date=start_date, end_date=end_date)
+                if pdf_data:
+                    file_path = os.path.join(reports_dir, f"{job_id}.pdf")
+                    with open(file_path, 'wb') as f:
+                        f.write(pdf_data)
+                    with db_lock:
+                        conn = get_db_connection()
+                        conn.execute("UPDATE pdf_jobs SET status = 'ready' WHERE id = ?", (job_id,))
+                        conn.commit()
+                        conn.close()
+                    print(f"PDF for job {job_id} saved to {file_path}.")
+                else:
+                    raise Exception("No data returned from report generator.")
+            except Exception as e:
+                print(f"PDF generation for job {job_id} failed: {e}")
                 with db_lock:
                     conn = get_db_connection()
-                    conn.execute("UPDATE pdf_jobs SET status = 'ready' WHERE id = ?", (job_id,))
+                    conn.execute("UPDATE pdf_jobs SET status = 'failed' WHERE id = ?", (job_id,))
                     conn.commit()
                     conn.close()
-                print(f"PDF for job {job_id} saved to {file_path}.")
-            else:
-                raise Exception("No data returned from report generator.")
-        except Exception as e:
-            print(f"PDF generation for job {job_id} failed: {e}")
-            with db_lock:
-                conn = get_db_connection()
-                conn.execute("UPDATE pdf_jobs SET status = 'failed' WHERE id = ?", (job_id,))
-                conn.commit()
-                conn.close()
+    finally:
+        print(f"Background PDF worker for job {job_id} finished.")
+        background_task_running.clear()
 
 @app.route('/export/pdf', methods=['GET', 'POST'])
 def export_pdf():
     """Kicks off a background job to generate a PDF report. Handles both predefined timespans and custom date ranges."""
+    if background_task_running.is_set():
+        flask.flash("A background task is already running. Please wait for it to complete.", "warning")
+        return flask.redirect(flask.url_for('downloads'))
+
     job_id = str(uuid.uuid4())
     
     if flask.request.method == 'POST':
@@ -546,20 +566,30 @@ def export_pdf():
     thread = threading.Thread(target=_generate_pdf_worker, args=thread_args)
     thread.start()
 
-    flask.flash(f"Report '{download_name}' is being generated in the background.", "info")
-    return flask.redirect(flask.url_for('downloads'))
+    return flask.redirect(flask.url_for('reports'))
 
-@app.route('/downloads')
-def downloads():
+@app.route('/reports')
+def reports():
     """Displays a list of generated PDF reports available for download."""
     # Clean up old files
     reports_dir = os.path.join(app.static_folder, 'reports')
+    jobs_to_delete_from_db = []
     if os.path.exists(reports_dir):
         for f in os.listdir(reports_dir):
-            file_path = os.path.join(reports_dir, f)
-            if os.path.getmtime(file_path) < time.time() - 3600: # 1 hour old
-                os.remove(file_path)
+            if f.endswith('.pdf'):
+                file_path = os.path.join(reports_dir, f)
+                if os.path.getmtime(file_path) < time.time() - 3600: # 1 hour old
+                    print(f"Auto-deleting old report file: {f}")
+                    os.remove(file_path)
+                    jobs_to_delete_from_db.append(f.replace('.pdf', ''))
     
+    if jobs_to_delete_from_db:
+        with db_lock:
+            conn = get_db_connection()
+            conn.executemany("DELETE FROM pdf_jobs WHERE id = ?", [(job_id,) for job_id in jobs_to_delete_from_db])
+            conn.commit()
+            conn.close()
+
     # ** CHANGE: Fetch jobs from the database **
     conn = get_db_connection()
     jobs = conn.execute("SELECT * FROM pdf_jobs ORDER BY timestamp DESC").fetchall()
@@ -568,7 +598,7 @@ def downloads():
     # Convert to list of dicts to pass to template
     jobs_list = [dict(job) for job in jobs]
 
-    return flask.render_template('downloads.html', jobs=jobs_list)
+    return flask.render_template('reports.html', jobs=jobs_list)
 
 @app.route('/delete_report/<job_id>', methods=['POST'])
 def delete_report(job_id):
@@ -589,7 +619,7 @@ def delete_report(job_id):
             print(f"Deleted report file {job_id}.pdf")
     except Exception as e:
         print(f"Error deleting report file {job_id}.pdf: {e}")
-    return flask.redirect(flask.url_for('downloads'))
+    return flask.redirect(flask.url_for('reports'))
 
 @app.route('/firewall/<int:fw_id>', methods=['GET', 'POST'])
 def firewall_detail(fw_id):
@@ -654,11 +684,7 @@ def manage_firewalls():
     conn = get_db_connection()
     firewalls = conn.execute('SELECT * FROM firewalls ORDER BY ip_address').fetchall()
     conn.close()
-    # Check for the auto-refresh flag
-    auto_refresh = 'background_refresh_pending' in flask.session
-    if auto_refresh:
-        flask.session.pop('background_refresh_pending', None)
-    return flask.render_template('firewalls.html', firewalls=firewalls, auto_refresh=auto_refresh)
+    return flask.render_template('firewalls.html', firewalls=firewalls)
 
 @app.route('/capacity')
 def capacity_dashboard():
@@ -703,11 +729,7 @@ def capacity_dashboard():
         fw_dict['util_ssl_decrypt'] = (fw['current_ssl_decrypt_sessions'] / fw['max_ssl_decrypt_sessions'] * 100) if fw['current_ssl_decrypt_sessions'] is not None and fw['max_ssl_decrypt_sessions'] else 0
         results.append(fw_dict)
     
-    # Check for the auto-refresh flag
-    auto_refresh = 'background_refresh_pending' in flask.session
-    if auto_refresh:
-        flask.session.pop('background_refresh_pending', None)
-    return flask.render_template('capacity.html', firewalls=results, auto_refresh=auto_refresh)
+    return flask.render_template('capacity.html', firewalls=results)
 
 @app.route('/alerts')
 def alerts():
@@ -760,65 +782,62 @@ def import_firewalls():
         conn.close()
     return flask.redirect(flask.url_for('manage_firewalls'))
 
+def _import_from_panorama_worker():
+    """Worker function to run the Panorama import in a background thread."""
+    background_task_running.set()
+    print("Background Panorama import worker started.")
+    with app.app_context():
+        key = load_key()
+        conn = get_db_connection()
+        settings = {row['key']: row['value'] for row in conn.execute("SELECT key, value FROM settings").fetchall()}
+        pano_host = settings.get('PANORAMA_HOST')
+        pano_user = settings.get('PANORAMA_USER')
+        encrypted_pass = settings.get('PANORAMA_PASSWORD')
+
+        if not all([pano_host, pano_user, encrypted_pass]):
+            print("Panorama import failed: Settings are incomplete.")
+            conn.close()
+            background_task_running.clear()
+            return
+
+        pano_pass = decrypt_message(encrypted_pass, key)
+        
+        try:
+            api_params = {'type': 'keygen', 'user': pano_user, 'password': pano_pass}
+            response = requests.get(f"https://{pano_host}/api/", params=api_params, verify=False, timeout=10)
+            response.raise_for_status()
+            tree = ET.fromstring(response.content)
+            api_key = tree.find('.//key')
+            if api_key is None or not api_key.text:
+                raise Exception("Failed to get API key from Panorama. Check credentials.")
+
+            cmd = "<show><devices><connected></connected></devices></show>"
+            response = requests.get(f"https://{pano_host}/api/?type=op&cmd={cmd}&key={api_key.text}", verify=False, timeout=20)
+            response.raise_for_status()
+
+            device_tree = ET.fromstring(response.content)
+            ips_to_import = [dev.findtext('ip-address') for dev in device_tree.findall('.//devices/entry')]
+            
+            with db_lock:
+                for ip in ips_to_import:
+                    if ip:
+                        conn.execute('INSERT OR IGNORE INTO firewalls (ip_address) VALUES (?)', (ip,))
+                conn.commit()
+            print(f"Panorama import successful. Processed {len(ips_to_import)} devices.")
+        except Exception as e:
+            print(f"Error during Panorama import: {e}")
+        finally:
+            conn.close()
+            background_task_running.clear()
+
 @app.route('/import_from_panorama', methods=['POST'])
 def import_from_panorama():
-    key = load_key()
-    conn = get_db_connection()
-    settings_rows = conn.execute("SELECT key, value FROM settings").fetchall()
-    settings = {row['key']: row['value'] for row in settings_rows}
-    conn.close()
-
-    # Get Panorama config from the database
-    pano_host = settings.get('PANORAMA_HOST')
-    pano_user = settings.get('PANORAMA_USER')
-    encrypted_pass = settings.get('PANORAMA_PASSWORD')
-
-    if not all([pano_host, pano_user, encrypted_pass]):
-        flask.flash("Panorama settings are incomplete. Please configure them on the Settings page.")
+    if background_task_running.is_set():
+        flask.flash("A background task is already running. Please wait for it to complete.", "warning")
         return flask.redirect(flask.url_for('manage_firewalls'))
-
-    pano_pass = decrypt_message(encrypted_pass, key)
     
-    try:
-        # 1. Get API Key from Panorama
-        api_params = {'type': 'keygen', 'user': pano_user, 'password': pano_pass}
-        response = requests.get(f"https://{pano_host}/api/", params=api_params, verify=False, timeout=10)
-        response.raise_for_status()
-        
-        tree = ET.fromstring(response.content)
-        api_key = tree.find('.//key')
-        if api_key is None or not api_key.text:
-            raise Exception("Failed to get API key from Panorama. Check credentials.")
-
-        # 2. Get list of connected devices
-        cmd = "<show><devices><connected></connected></devices></show>"
-        response = requests.get(f"https://{pano_host}/api/?type=op&cmd={cmd}&key={api_key.text}", verify=False, timeout=20)
-        response.raise_for_status()
-
-        # 3. Parse XML and import IPs into the database
-        device_tree = ET.fromstring(response.content)
-        ips_to_import = [dev.findtext('ip-address') for dev in device_tree.findall('.//devices/entry')]
-        
-        imported_count = 0
-        conn = get_db_connection()
-        for ip in ips_to_import:
-            if ip:
-                try:
-                    # INSERT OR IGNORE will skip duplicates
-                    cursor = conn.execute('INSERT OR IGNORE INTO firewalls (ip_address) VALUES (?)', (ip,))
-                    # The number of rows changed will be 1 for a new insert, 0 for an ignored duplicate
-                    if cursor.rowcount > 0:
-                        imported_count += 1
-                except sqlite3.IntegrityError:
-                    pass # Should be caught by IGNORE but here for safety
-        conn.commit()
-        conn.close()
-        
-        flask.flash(f"Import successful! Added {imported_count} new firewalls from Panorama. Duplicates were ignored.")
-
-    except Exception as e:
-        flask.flash(f"Error importing from Panorama: {e}")
-
+    thread = threading.Thread(target=_import_from_panorama_worker)
+    thread.start()
     return flask.redirect(flask.url_for('manage_firewalls'))
 
 @app.route('/delete_firewall/<int:fw_id>', methods=['POST'])
@@ -928,8 +947,6 @@ def refresh_specs():
     # ** NEW: Start the worker in a background thread **
     thread = threading.Thread(target=_refresh_specs_worker)
     thread.start()
-    flask.session['background_refresh_pending'] = True
-    flask.flash("Max specs refresh started in the background. This may take a few moments.", "info")
     return flask.redirect(flask.request.referrer or flask.url_for('index'))
 
 def _refresh_capacity_worker():
@@ -970,7 +987,8 @@ def _refresh_capacity_worker():
             return
 
         with db_lock:
-            details_map = {row['firewall_id']: dict(row) for row in conn.execute("SELECT * FROM firewall_details").fetchall()}
+            # ** FIX: Join with firewall_models to get all max capacity values in one go **
+            details_map = {row['firewall_id']: dict(row) for row in conn.execute("SELECT fd.*, fm.max_ssl_decrypt_sessions FROM firewall_details fd JOIN firewalls f ON f.id = fd.firewall_id LEFT JOIN firewall_models fm ON f.model = fm.model").fetchall()}
             for fw in firewalls:
                 if fw['ip_address'] in api_keys:
                     usage_data = poll_current_usage(conn, fw['id'], fw['ip_address'], api_keys[fw['ip_address']])
@@ -987,7 +1005,7 @@ def _refresh_capacity_worker():
                         if fw_details:
                             alert_threshold = int(settings.get('ALERT_THRESHOLD', 80))
                             metrics_to_check = [
-                                ('Security Rules', 'rules', 'max_rules'), ('NAT Rules', 'nat-rules', 'max_nat_rules'),
+                                ('Security Rules', 'rules', 'max_rules'), ('NAT Rules', 'nat-rules', 'max_nat_rules'), ('SSL Decrypt Sessions', 'ssl_decrypt_sessions', 'max_ssl_decrypt_sessions'),
                                 ('Address Objects', 'address', 'max_address_objects'), ('Service Objects', 'service', 'max_service_objects'),
                                 ('IPsec Tunnels', 'ipsec', 'max_ipsec_tunnels'), ('Routes', 'routes', 'max_routes'),
                                 ('Multicast Routes', 'mroutes', 'max_mroutes'), ('ARP Entries', 'arp', 'max_arp_entries'),
@@ -1029,8 +1047,6 @@ def refresh_capacity():
     # ** NEW: Start the worker in a background thread **
     thread = threading.Thread(target=_refresh_capacity_worker)
     thread.start()
-    flask.session['background_refresh_pending'] = True
-    flask.flash("Current usage refresh started in the background. This may take a few moments.", "info")
     return flask.redirect(flask.url_for('capacity_dashboard'))
 
 def poll_current_usage(conn, firewall_id, host, api_key):
