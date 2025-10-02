@@ -59,6 +59,7 @@ def init_db():
     # ** NEW: Table for firewall model specifications **
     conn.execute('''CREATE TABLE IF NOT EXISTS firewall_models (model TEXT PRIMARY KEY, generation TEXT, max_sessions INTEGER, max_throughput_mbps INTEGER, max_ssl_decrypt_sessions INTEGER);''')
     conn.execute('''CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);''')
+    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('ALERT_THRESHOLD', '80')")
     conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('POLL_INTERVAL', '30')")
     
     # ** NEW: Add 'model' column to the firewalls table if it doesn't exist **
@@ -438,6 +439,10 @@ def settings():
             conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", 
                          ('PANORAMA_PASSWORD', encrypted_pano_pass))
         
+        # ** NEW: Save Alerting settings **
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                     ('ALERT_THRESHOLD', flask.request.form['alert_threshold']))
+        
         conn.commit()
         flask.flash("Settings saved successfully!")
         return flask.redirect(flask.url_for('settings'))
@@ -708,6 +713,8 @@ def capacity_dashboard():
 def alerts():
     """Displays active, unacknowledged alerts."""
     conn = get_db_connection()
+    settings = {row['key']: row['value'] for row in conn.execute("SELECT key, value FROM settings").fetchall()}
+    alert_threshold = settings.get('ALERT_THRESHOLD', '80')
     query = """
         SELECT a.id, a.metric_name, a.utilization, a.timestamp, f.hostname, f.ip_address
         FROM alerts a
@@ -717,7 +724,7 @@ def alerts():
     """
     active_alerts = conn.execute(query).fetchall()
     conn.close()
-    return flask.render_template('alerts.html', alerts=active_alerts)
+    return flask.render_template('alerts.html', alerts=active_alerts, alert_threshold=alert_threshold)
 
 @app.route('/acknowledge_alert/<int:alert_id>', methods=['POST'])
 def acknowledge_alert(alert_id):
@@ -978,6 +985,7 @@ def _refresh_capacity_worker():
                         # ** FIX: Add the alert checking logic to the worker **
                         fw_details = details_map.get(fw['id'])
                         if fw_details:
+                            alert_threshold = int(settings.get('ALERT_THRESHOLD', 80))
                             metrics_to_check = [
                                 ('Security Rules', 'rules', 'max_rules'), ('NAT Rules', 'nat-rules', 'max_nat_rules'),
                                 ('Address Objects', 'address', 'max_address_objects'), ('Service Objects', 'service', 'max_service_objects'),
@@ -991,7 +999,7 @@ def _refresh_capacity_worker():
                                 max_val = fw_details.get(max_key)
                                 if current_val is not None and max_val is not None and max_val > 0:
                                     utilization = (current_val / max_val) * 100
-                                    if utilization >= 80:
+                                    if utilization >= alert_threshold:
                                         exists = conn.execute("SELECT 1 FROM alerts WHERE firewall_id = ? AND metric_name = ? AND acknowledged = 0", (fw['id'], label)).fetchone()
                                         if not exists:
                                             conn.execute("INSERT INTO alerts (firewall_id, metric_name, utilization, timestamp) VALUES (?, ?, ?, ?)",
@@ -1037,7 +1045,6 @@ def poll_current_usage(conn, firewall_id, host, api_key):
         },
         'op': {
             'arp': ("<show><arp><entry name='all'/></arp></show>", './/entries/entry'),
-            'bfd': ("<show><bfd><session><entry name='all'/></session></bfd></show>", './/result/entry'),
             'dns_cache': ("<show><dns-proxy><cache><all/></cache></dns-proxy></show>", './/entry'),
             'registered_ips': ("<show><user><ip-user-mapping><all></all></ip-user-mapping></user></show>", './/entry'),
             'ssl_decrypt_sessions': ("<show><session><all><filter><ssl-decrypt>yes</ssl-decrypt><count>yes</count></filter></all></session></show>", './/result')
@@ -1148,6 +1155,26 @@ def poll_current_usage(conn, firewall_id, host, api_key):
                     if len(parts) > 1 and parts[1].strip().isdigit():
                         count = int(parts[1].strip())
                 usage_data[key] = count
+            elif key == 'bfd':
+                # ** NEW: Conditional BFD session polling **
+                fw_row = conn.execute("SELECT sw_version FROM firewalls WHERE id = ?", (firewall_id,)).fetchone()
+                sw_version_str = fw_row['sw_version'] if fw_row else '0.0.0'
+                major_version = int(sw_version_str.split('.')[0])
+
+                if major_version >= 11:
+                    if adv_routing_enabled:
+                        bfd_cmd = '<show><advanced-routing><bfd><summary/></bfd></advanced-routing></show>'
+                    else:
+                        bfd_cmd = '<show><routing><bfd><summary/></bfd></routing></show>'
+                    
+                    params = {'type': 'op', 'cmd': bfd_cmd, 'key': api_key}
+                    response = requests.get(f"https://{host}/api/", params=params, verify=False, timeout=15)
+                    response.raise_for_status()
+                    root = ET.fromstring(response.content)
+                    usage_data[key] = len(root.findall(find_path))
+                else:
+                    # BFD summary command not supported on older versions
+                    usage_data[key] = 0
             else:
                 response = requests.get(f"https://{host}/api/", params=params, verify=False, timeout=15)
                 response.raise_for_status()
