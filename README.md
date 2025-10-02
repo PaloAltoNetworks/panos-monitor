@@ -90,6 +90,50 @@ To add a custom icon to your browser tabs:
 
 ## Usage Guide 🚀
 
+### (Optional) Running as a Service on Ubuntu Linux
+
+To ensure the application runs continuously in the background and starts automatically on boot, you can configure it as a `systemd` service. These instructions assume you have cloned the project into `/opt/pan-monitor-app`.
+
+1.  **Create the service file:**
+    ```
+    sudo nano /etc/systemd/system/pan-monitor.service
+    ```
+
+2.  **Paste the following content** into the file. Be sure to replace `your_user` and `your_group` with the actual user and group you want the service to run as (e.g., `ubuntu`, `www-data`).
+
+    ```ini
+    [Unit]
+    Description=PAN-OS Stats Monitor
+    After=network.target
+
+    [Service]
+    User=your_user
+    Group=your_group
+    WorkingDirectory=/opt/pan-monitor-app
+    ExecStart=/opt/pan-monitor-app/pan-monitor-app/bin/python3 /opt/pan-monitor-app/app.py
+    Restart=always
+
+    [Install]
+    WantedBy=multi-user.target
+    ```
+
+3.  **Reload, Enable, and Start the Service:**
+    ```
+    sudo systemctl daemon-reload
+    sudo systemctl enable pan-monitor.service
+    sudo systemctl start pan-monitor.service
+    ```
+
+4.  **Check the Status:** You can check if the service is running correctly with:
+    ```
+    sudo systemctl status pan-monitor.service
+    ```
+
+5.  **View Logs:** To see the application's console output (including any errors), you can view the service logs:
+    ```
+    sudo journalctl -u pan-monitor.service -f
+    ```
+
 ### 1. Run the Application
 
 Launch the Flask web server by running `app.py`:
