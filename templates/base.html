@@ -140,7 +140,7 @@
                 <li><a href="{{ url_for('advisor') }}" {% if request.endpoint == 'advisor' %}aria-current="page"{% endif %}>Upgrade Advisor</a></li>
                 <li><a href="{{ url_for('reports') }}" {% if request.endpoint == 'reports' %}aria-current="page"{% endif %}>Reports</a></li>
                 <li><a href="{{ url_for('manage_firewalls') }}" {% if request.endpoint == 'manage_firewalls' %}aria-current="page"{% endif %}>Manage Firewalls</a></li>
-                <li><a href="{{ url_for('manage_models') }}" {% if request.endpoint == 'manage_models' %}aria-current="page"{% endif %}>Manage Models</a></li>
+                <li><a href="{{ url_for('model_specs') }}" {% if request.endpoint == 'model_specs' %}aria-current="page"{% endif %}>Model Specs</a></li>
                 <li><a href="{{ url_for('settings') }}" {% if request.endpoint == 'settings' %}aria-current="page"{% endif %}>Settings</a></li>
                 {# ** NEW: Background Task Status Indicator (Moved) ** #}
                 {% if background_task_is_running %}

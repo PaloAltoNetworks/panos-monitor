@@ -388,11 +388,12 @@ def advisor():
         for fw in firewalls:
             res = {'ip_address': fw['ip_address'], 'model': fw['model'], 'hostname': fw['hostname']}
             
-            query = f"SELECT MAX(active_sessions) as max_s, MAX(total_input_bps + total_output_bps) as max_tp FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}');"
+            query = f"SELECT MAX(active_sessions) as max_s, MAX(total_input_bps) as max_in, MAX(total_output_bps) as max_out FROM stats WHERE firewall_id = ? AND timestamp >= datetime('now', 'localtime', '{time_modifier}');"
             peak_stats = conn.execute(query, (fw['id'],)).fetchone()
 
             peak_sessions = peak_stats['max_s'] or 0
-            peak_throughput_mbps = (peak_stats['max_tp'] or 0) / 1000000
+            # ** NEW: Use the greater of peak input or peak output for the analysis **
+            peak_throughput_mbps = max(peak_stats['max_in'] or 0, peak_stats['max_out'] or 0) / 1000000
             
             res['peak_sessions'] = peak_sessions
             res['peak_throughput'] = peak_throughput_mbps
@@ -895,8 +896,8 @@ def delete_firewall(fw_id):
     return flask.redirect(flask.url_for('manage_firewalls'))
 
 # --- NEW: Routes for Managing Firewall Models ---
-@app.route('/models')
-def manage_models():
+@app.route('/model_specs')
+def model_specs():
     conn = get_db_connection()
     models = conn.execute('SELECT * FROM firewall_models ORDER BY generation, max_sessions, max_throughput_mbps').fetchall()
     conn.close()
@@ -918,7 +919,7 @@ def add_model():
         flask.flash(f"An error occurred: {e}", "error")
     finally:
         conn.close()
-    return flask.redirect(flask.url_for('manage_models'))
+    return flask.redirect(flask.url_for('model_specs'))
 
 @app.route('/delete_model', methods=['POST'])
 def delete_model():
@@ -927,7 +928,7 @@ def delete_model():
     conn.commit()
     conn.close()
     flask.flash(f"Model '{flask.request.form['model']}' deleted successfully.", "success")
-    return flask.redirect(flask.url_for('manage_models'))
+    return flask.redirect(flask.url_for('model_specs'))
 
 def _refresh_specs_worker():
     """Worker function to run the spec refresh in a background thread."""
