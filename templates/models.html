@@ -38,7 +38,7 @@
                     <input type="number" id="max_ssl_decrypt_sessions" name="max_ssl_decrypt_sessions" placeholder="e.g., 4200" required>
                 </label>
             </div>
-            <button type="submit">Add Model</button>
+            <button type="submit" class="btn-small">Add Model</button>
         </form>
     </article>
 </div>
@@ -68,7 +68,7 @@
                     <td>
                         <form action="{{ url_for('delete_model') }}" method="post" onsubmit="return confirm('Are you sure you want to delete this model?');" style="margin-bottom: 0;">
                             <input type="hidden" name="model" value="{{ model.model }}">
-                            <button type="submit" class="secondary outline">Delete</button>
+                            <button type="submit" class="secondary outline btn-small">Delete</button>
                         </form>
                     </td>
                 </tr>

@@ -5,6 +5,11 @@
       main.container {
         max-width: 1600px;
       }
+      /* ** NEW: Make timeframe buttons smaller for consistency ** */
+      .timeframe-nav a[role="button"] {
+          font-size: 0.85rem;
+          padding: 0.3rem 0.6rem;
+      }
     </style>
 
     <a href="{{ url_for('index') }}">&larr; Back to Dashboard</a>
@@ -43,13 +48,13 @@
         </article>
     </details>
 
-    <nav>
+    <nav class="timeframe-nav">
       <ul>
         <li><strong>Timeframe:</strong></li>
         <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='5m') }}" role="button" class="{{ 'primary' if current_timespan == '5m' else 'secondary outline' }}">Last 5 Mins</a></li>
-        <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='1h') }}" role="button" class="{{ 'primary' if current_timespan == '1h' else 'secondary outline' }}">Last Hour</a></li>
-        <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='6h') }}" role="button" class="{{ 'primary' if current_timespan == '6h' else 'secondary outline' }}">Last 6 Hours</a></li>
-        <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='24h') }}" role="button" class="{{ 'primary' if current_timespan == '24h' else 'secondary outline' }}">Last 24 Hours</a></li>
+        <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='1h') }}" role="button" class="{{ 'primary' if current_timespan == '1h' else 'secondary outline' }}">Last 1 Hr</a></li>
+        <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='6h') }}" role="button" class="{{ 'primary' if current_timespan == '6h' else 'secondary outline' }}">Last 6 Hrs</a></li>
+        <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='24h') }}" role="button" class="{{ 'primary' if current_timespan == '24h' else 'secondary outline' }}">Last 24 Hrs</a></li>
         <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='7d') }}" role="button" class="{{ 'primary' if current_timespan == '7d' else 'secondary outline' }}">Last 7 Days</a></li>
         <li><a href="{{ url_for('firewall_detail', fw_id=fw_id, timespan='30d') }}" role="button" class="{{ 'primary' if current_timespan == '30d' else 'secondary outline' }}">Last 30 Days</a></li>
       </ul>
@@ -137,11 +142,11 @@
                         <table>
                             <thead><tr><th>Metric</th><th>Peak Value</th></tr></thead>
                             <tbody>
-                                <tr><td>Max Sessions</td><td>{{ full_data.summary_data.max_sessions | int }}</td></tr>
-                                <tr><td>Highest Input</td><td>{{ (full_data.summary_data.max_input / 1000000) | round(2) }} Mbps</td></tr>
-                                <tr><td>Highest Output</td><td>{{ (full_data.summary_data.max_output / 1000000) | round(2) }} Mbps</td></tr>
-                                <tr><td>Highest CPU Load</td><td>{{ full_data.summary_data.max_cpu | round(2) }}%</td></tr>
-                                <tr><td>Highest Dataplane Load</td><td>{{ full_data.summary_data.max_dp | round(2) }}%</td></tr>
+                                <tr><td>Peak Sessions</td><td>{{ "{:,}".format(full_data.summary_data.max_sessions) }}</td></tr>
+                                <tr><td>Peak Input</td><td>{{ (full_data.summary_data.max_input / 1000000) | round(2) }} Mbps</td></tr>
+                                <tr><td>Peak Output</td><td>{{ (full_data.summary_data.max_output / 1000000) | round(2) }} Mbps</td></tr>
+                                <tr><td>Peak CPU Load</td><td>{{ full_data.summary_data.max_cpu | round(2) }}%</td></tr>
+                                <tr><td>Peak DP Load</td><td>{{ full_data.summary_data.max_dp | round(2) }}%</td></tr>
                             </tbody>
                         </table>
                     </div>

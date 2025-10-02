@@ -65,15 +65,15 @@ def create_summary_table_page(pdf, firewalls, conn, title, specs_map, timespan=N
         query_params_base = (time_modifier,)
     
     pdf.set_font("Helvetica", "B", 9)
-    pdf.cell(40, 8, 'Hostname', 1, 0, 'C')
+    pdf.cell(40, 8, 'Device-Name', 1, 0, 'C')
     pdf.cell(30, 8, 'Firewall IP', 1, 0, 'C')
     pdf.cell(25, 8, 'Model', 1, 0, 'C')
     pdf.cell(25, 8, 'Generation', 1, 0, 'C')
     pdf.cell(30, 8, 'Max Sessions', 1, 0, 'C')
     pdf.cell(30, 8, 'Peak Input (Mbps)', 1, 0, 'C')
     pdf.cell(30, 8, 'Peak Output (Mbps)', 1, 0, 'C')
-    pdf.cell(25, 8, 'Peak CPU (%)', 1, 0, 'C')
-    pdf.cell(25, 8, 'Peak DP (%)', 1, 0, 'C')
+    pdf.cell(25, 8, 'Peak CPU Load (%)', 1, 0, 'C')
+    pdf.cell(25, 8, 'Peak DP Load (%)', 1, 0, 'C')
     pdf.ln()
 
     pdf.set_font("Helvetica", "", 8)
@@ -126,10 +126,10 @@ def create_capacity_report_page(pdf, firewalls, conn):
 
         pdf.set_font("Helvetica", "B", 14)
         fw_name = fw_data['hostname'] or fw_data['ip_address']
-        pdf.cell(0, 10, f"Device: {fw_name} ({fw_data['ip_address']})", 0, 1, 'L')
+        pdf.cell(0, 10, f"Device-Name: {fw_name} ({fw_data['ip_address']})", 0, 1, 'L')
         pdf.set_font("Helvetica", "", 10)
         pdf.cell(0, 5, f"Model: {fw_data['model'] or 'N/A'} | PAN-OS: {fw_data['sw_version'] or 'N/A'}", 0, 1, 'L')
-        pdf.cell(0, 5, f"Last Usage Data: {fw_data['last_updated'] or 'Never'}", 0, 1, 'L')
+        pdf.cell(0, 5, f"Last Updated: {fw_data['last_updated'] or 'Never'}", 0, 1, 'L')
         pdf.ln(5)
 
         if fw_data['current_rules'] is None:
