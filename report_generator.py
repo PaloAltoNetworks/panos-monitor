@@ -146,7 +146,6 @@ def create_capacity_report_page(pdf, firewalls, conn):
         pdf.set_font("Helvetica", "", 8)
         metrics = [
             ('Security Rules', 'current_rules', 'max_rules'), ('NAT Rules', 'current_nat_rules', 'max_nat_rules'),
-            ('SSL Decrypt Sessions', 'current_ssl_decrypt_sessions', 'max_ssl_decrypt_sessions'),
             ('Address Objects', 'current_address_objects', 'max_address_objects'), ('Service Objects', 'current_service_objects', 'max_service_objects'),
             ('IPsec Tunnels', 'current_ipsec_tunnels', 'max_ipsec_tunnels'), ('Routes', 'current_routes', 'max_routes'),
             ('Multicast Routes', 'current_mroutes', 'max_mroutes'), ('ARP Entries', 'current_arp_entries', 'max_arp_entries'),

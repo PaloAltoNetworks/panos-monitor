@@ -493,7 +493,7 @@ def _re_evaluate_alerts(conn, alert_threshold):
     """).fetchall()
 
     metrics_to_check = [
-        ('Security Rules', 'current_rules', 'max_rules'), ('NAT Rules', 'current_nat_rules', 'max_nat_rules'), ('SSL Decrypt Sessions', 'current_ssl_decrypt_sessions', 'max_ssl_decrypt_sessions'),
+        ('Security Rules', 'current_rules', 'max_rules'), ('NAT Rules', 'current_nat_rules', 'max_nat_rules'),
         ('Address Objects', 'current_address_objects', 'max_address_objects'), ('Service Objects', 'current_service_objects', 'max_service_objects'),
         ('IPsec Tunnels', 'current_ipsec_tunnels', 'max_ipsec_tunnels'), ('Routes', 'current_routes', 'max_routes'),
         ('Multicast Routes', 'current_mroutes', 'max_mroutes'), ('ARP Entries', 'current_arp_entries', 'max_arp_entries'),
@@ -778,7 +778,6 @@ def capacity_dashboard():
         fw_dict['util_bfd'] = (fw['current_bfd_sessions'] / fw['max_bfd_sessions'] * 100) if fw['current_bfd_sessions'] is not None and fw['max_bfd_sessions'] else 0
         fw_dict['util_dns_cache'] = (fw['current_dns_cache'] / fw['max_dns_cache'] * 100) if fw['current_dns_cache'] is not None and fw['max_dns_cache'] else 0
         fw_dict['util_registered_ips'] = (fw['current_registered_ips'] / fw['max_registered_ips'] * 100) if fw['current_registered_ips'] is not None and fw['max_registered_ips'] else 0
-        fw_dict['util_ssl_decrypt'] = (fw['current_ssl_decrypt_sessions'] / fw['max_ssl_decrypt_sessions'] * 100) if fw['current_ssl_decrypt_sessions'] is not None and fw['max_ssl_decrypt_sessions'] else 0
         results.append(fw_dict)
     
     return flask.render_template('capacity.html', firewalls=results)
@@ -1372,21 +1371,16 @@ def poll_single_firewall(args):
         # API Calls
         session_xml = requests.get(f"https://{host}/api/?type=op&key={api_key}&cmd=<show><session><info/></session></show>", verify=False, timeout=15).content
         if_counter_xml = requests.get(f"https://{host}/api/?type=op&key={api_key}&cmd=<show><counter><interface>all</interface></counter></show>", verify=False, timeout=15).content
-        ssl_decrypt_xml = requests.get(f"https://{host}/api/?type=op&key={api_key}&cmd=<show><session><all><filter><ssl-decrypt>yes</ssl-decrypt><count>yes</count></filter></all></session></show>", verify=False, timeout=15).content
+        ssl_decrypt_xml = requests.get(f"https://{host}/api/?type=op&key={api_key}&cmd=<show><session><all><filter><ssl-decrypt>yes</ssl-decrypt></filter></all></session></show>", verify=False, timeout=15).content
         resource_xml = requests.get(f"https://{host}/api/?type=op&key={api_key}&cmd=<show><running><resource-monitor></resource-monitor></running></show>", verify=False, timeout=15).content
         
         # Process Session info
         session_tree = ET.fromstring(session_xml)
         active_sessions = int(session_tree.find('.//num-active').text or 0)
         
-        # Process SSL Decrypt Session info
+        # Process SSL Decrypt Session info by counting entries
         ssl_decrypt_tree = ET.fromstring(ssl_decrypt_xml)
-        cdata_text = ssl_decrypt_tree.findtext('.//result')
-        ssl_decrypt_sessions = 0
-        if cdata_text and 'Number of sessions that match filter:' in cdata_text:
-            parts = cdata_text.split(':')
-            if len(parts) > 1 and parts[1].strip().isdigit():
-                ssl_decrypt_sessions = int(parts[1].strip())
+        ssl_decrypt_sessions = len(ssl_decrypt_tree.findall('.//result/entry'))
 
         # Process Resource monitor info
         resource_tree = ET.fromstring(resource_xml)
