@@ -14,7 +14,7 @@
     <p>This dashboard shows the current count of configured objects against the device's maximum capacity. Data is updated when you click the refresh button.</p>
     <div class="grid">
         <form action="{{ url_for('refresh_capacity') }}" method="post" style="margin: 0;">
-            <button type="submit" class="contrast btn-small">Refresh Current Usage</button>
+            <button type="submit" class="btn-small btn-panw">Refresh Current Usage</button>
         </form>
         <form action="{{ url_for('refresh_specs') }}" method="post" style="margin: 0;">
             <button type="submit" class="secondary btn-small">Refresh Max Specs</button>

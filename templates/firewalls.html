@@ -16,14 +16,14 @@
         <h4>Refresh Detailed Specs</h4>
         <p>Manually re-poll all firewalls to update their detailed capacity specs.</p>
         <form action="{{ url_for('refresh_specs') }}" method="post" style="margin: 0;">
-            <button type="submit" class="contrast btn-small">Refresh All Specs</button>
+            <button type="submit" class="btn-small btn-panw">Refresh All Specs</button>
         </form>
     </article>
     <article>
         <h4>Import from Panorama</h4>
         <p>Imports connected firewalls from the Panorama configured in Settings.</p>
         <form action="{{ url_for('import_from_panorama') }}" method="post" style="margin: 0;">
-            <button type="submit" class="btn-small">Import from Panorama</button>
+            <button type="submit" class="btn-small btn-panw">Import from Panorama</button>
         </form>
     </article>
     <article>
@@ -31,7 +31,7 @@
         <form action="{{ url_for('add_firewall') }}" method="post">
             <label for="ip_address">IP Address</label>
             <input type="text" id="ip_address" name="ip_address" placeholder="e.g., 192.168.1.1" required>
-            <button type="submit" class="btn-small">Add Firewall</button>
+            <button type="submit" class="btn-small btn-panw">Add Firewall</button>
         </form>
     </article>
     <article>
@@ -40,7 +40,7 @@
             <label for="file">Firewall List (.txt)</label>
             <small>One IP address per line.</small>
             <input type="file" id="file" name="file" accept=".txt" required>
-            <button type="submit" class="btn-small">Import</button>
+            <button type="submit" class="btn-small btn-panw">Import</button>
         </form>
     </article>
 </div>

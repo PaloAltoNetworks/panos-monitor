@@ -39,7 +39,7 @@
                     </select>
                 </label>
             </div>
-            <button type="submit" class="btn-small">Generate Custom Report</button>
+            <button type="submit" class="btn-small btn-panw">Generate Custom Report</button>
         </form>
         <hr>
         <h6>Predefined Timeframe Reports</h6>
@@ -47,37 +47,37 @@
         <div class="grid">
             <div>
                 <small><b>Capacity Report</b></small>
-                <p class="report-buttons"><a href="{{ url_for('export_pdf', type='capacity') }}" role="button" class="btn-small">Generate Now</a></p>
+                <p class="report-buttons"><a href="{{ url_for('export_pdf', type='capacity') }}" role="button" class="btn-small btn-panw">Generate Now</a></p>
                 <hr>
                 <small><b>Table Only Report</b></small>
                 <p class="report-buttons">
-                    <a href="{{ url_for('export_pdf', timespan='5m', type='table_only') }}" role="button" class="outline btn-small">5 Mins</a>
-                    <a href="{{ url_for('export_pdf', timespan='1h', type='table_only') }}" role="button" class="outline btn-small">1 Hr</a>
-                    <a href="{{ url_for('export_pdf', timespan='6h', type='table_only') }}" role="button" class="outline btn-small">6 Hrs</a>
-                    <a href="{{ url_for('export_pdf', timespan='24h', type='table_only') }}" role="button" class="outline btn-small">24 Hrs</a>
-                    <a href="{{ url_for('export_pdf', timespan='7d', type='table_only') }}" role="button" class="outline btn-small">7 Days</a>
-                    <a href="{{ url_for('export_pdf', timespan='30d', type='table_only') }}" role="button" class="outline btn-small">30 Days</a>
+                    <a href="{{ url_for('export_pdf', timespan='5m', type='table_only') }}" role="button" class="outline btn-small btn-panw-outline">5 Mins</a>
+                    <a href="{{ url_for('export_pdf', timespan='1h', type='table_only') }}" role="button" class="outline btn-small btn-panw-outline">1 Hr</a>
+                    <a href="{{ url_for('export_pdf', timespan='6h', type='table_only') }}" role="button" class="outline btn-small btn-panw-outline">6 Hrs</a>
+                    <a href="{{ url_for('export_pdf', timespan='24h', type='table_only') }}" role="button" class="outline btn-small btn-panw-outline">24 Hrs</a>
+                    <a href="{{ url_for('export_pdf', timespan='7d', type='table_only') }}" role="button" class="outline btn-small btn-panw-outline">7 Days</a>
+                    <a href="{{ url_for('export_pdf', timespan='30d', type='table_only') }}" role="button" class="outline btn-small btn-panw-outline">30 Days</a>
                 </p>
             </div>
             <div>
                 <small><b>Graphs Only Report</b></small>
                 <p class="report-buttons">
-                    <a href="{{ url_for('export_pdf', timespan='5m', type='graphs_only') }}" role="button" class="outline btn-small">5 Mins</a>
-                    <a href="{{ url_for('export_pdf', timespan='1h', type='graphs_only') }}" role="button" class="outline btn-small">1 Hr</a>
-                    <a href="{{ url_for('export_pdf', timespan='6h', type='graphs_only') }}" role="button" class="outline btn-small">6 Hrs</a>
-                    <a href="{{ url_for('export_pdf', timespan='24h', type='graphs_only') }}" role="button" class="outline btn-small">24 Hrs</a>
-                    <a href="{{ url_for('export_pdf', timespan='7d', type='graphs_only') }}" role="button" class="outline btn-small">7 Days</a>
-                    <a href="{{ url_for('export_pdf', timespan='30d', type='graphs_only') }}" role="button" class="outline btn-small">30 Days</a>
+                    <a href="{{ url_for('export_pdf', timespan='5m', type='graphs_only') }}" role="button" class="outline btn-small btn-panw-outline">5 Mins</a>
+                    <a href="{{ url_for('export_pdf', timespan='1h', type='graphs_only') }}" role="button" class="outline btn-small btn-panw-outline">1 Hr</a>
+                    <a href="{{ url_for('export_pdf', timespan='6h', type='graphs_only') }}" role="button" class="outline btn-small btn-panw-outline">6 Hrs</a>
+                    <a href="{{ url_for('export_pdf', timespan='24h', type='graphs_only') }}" role="button" class="outline btn-small btn-panw-outline">24 Hrs</a>
+                    <a href="{{ url_for('export_pdf', timespan='7d', type='graphs_only') }}" role="button" class="outline btn-small btn-panw-outline">7 Days</a>
+                    <a href="{{ url_for('export_pdf', timespan='30d', type='graphs_only') }}" role="button" class="outline btn-small btn-panw-outline">30 Days</a>
                 </p>
                 <hr>
                 <small><b>Combined Report</b></small>
                 <p class="report-buttons">
-                    <a href="{{ url_for('export_pdf', timespan='5m', type='combined') }}" role="button" class="outline btn-small">5 Mins</a>
-                    <a href="{{ url_for('export_pdf', timespan='1h', type='combined') }}" role="button" class="outline btn-small">1 Hr</a>
-                    <a href="{{ url_for('export_pdf', timespan='6h', type='combined') }}" role="button" class="outline btn-small">6 Hrs</a>
-                    <a href="{{ url_for('export_pdf', timespan='24h', type='combined') }}" role="button" class="outline btn-small">24 Hrs</a>
-                    <a href="{{ url_for('export_pdf', timespan='7d', type='combined') }}" role="button" class="outline btn-small">7 Days</a>
-                    <a href="{{ url_for('export_pdf', timespan='30d', type='combined') }}" role="button" class="outline btn-small">30 Days</a>
+                    <a href="{{ url_for('export_pdf', timespan='5m', type='combined') }}" role="button" class="outline btn-small btn-panw-outline">5 Mins</a>
+                    <a href="{{ url_for('export_pdf', timespan='1h', type='combined') }}" role="button" class="outline btn-small btn-panw-outline">1 Hr</a>
+                    <a href="{{ url_for('export_pdf', timespan='6h', type='combined') }}" role="button" class="outline btn-small btn-panw-outline">6 Hrs</a>
+                    <a href="{{ url_for('export_pdf', timespan='24h', type='combined') }}" role="button" class="outline btn-small btn-panw-outline">24 Hrs</a>
+                    <a href="{{ url_for('export_pdf', timespan='7d', type='combined') }}" role="button" class="outline btn-small btn-panw-outline">7 Days</a>
+                    <a href="{{ url_for('export_pdf', timespan='30d', type='combined') }}" role="button" class="outline btn-small btn-panw-outline">30 Days</a>
                 </p>
             </div>
         </div>
@@ -108,7 +108,7 @@
                     <td>
                         {% if job.status == 'ready' %}
                             <div class="grid" style="margin-bottom: 0; grid-template-columns: 1fr 1fr;">
-                                <a href="{{ url_for('static', filename='reports/' + job.id + '.pdf') }}" role="button" download="{{ job.name }}" style="margin-bottom: 0;">Download</a>
+                                <a href="{{ url_for('static', filename='reports/' + job.id + '.pdf') }}" role="button" download="{{ job.name }}" class="btn-panw" style="margin-bottom: 0;">Download</a>
                                 <form action="{{ url_for('delete_report', job_id=job.id) }}" method="post" style="margin-bottom: 0;">
                                     <button type="submit" class="secondary outline" style="margin-bottom: 0;">Delete</button>
                                 </form>
@@ -120,7 +120,7 @@
                             </div>
                         {% else %}
                             <div class="grid" style="margin-bottom: 0; grid-template-columns: 1fr 1fr;">
-                                <button aria-busy="true" style="margin-bottom: 0;">Generating...</button>
+                                <button class="secondary" aria-busy="true" style="margin-bottom: 0;">Generating...</button>
                                 <form action="{{ url_for('delete_report', job_id=job.id) }}" method="post" style="margin-bottom: 0;">
                                     <button type="submit" class="secondary outline" style="margin-bottom: 0;">Delete</button>
                                 </form>

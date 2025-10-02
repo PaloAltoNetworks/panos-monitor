@@ -10,8 +10,38 @@
     
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
     <style>
-        body { padding: 2rem; }
-        nav { margin-bottom: 2rem; }
+        body { padding: 0; } /* Remove all body padding */
+        nav.top-nav { 
+            position: -webkit-sticky; /* For Safari */
+            position: sticky;
+            top: 0;
+            z-index: 2; /* Ensure it's above other sticky elements */
+            background-color: #2d2d2d; /* Dark background for the nav bar */
+        }
+
+        /* Style the brand/logo area */
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem; /* Space between logo and text */
+        }
+
+        /* ** NEW: Remove top margin from the nav bar to close the gap ** */
+        nav.top-nav ul:first-of-type {
+            margin-top: 0;
+        }
+
+        /* Override default Pico link colors for the dark nav bar */
+        nav.top-nav ul li a {
+            color: #f0f0f0; /* Light gray for links */
+        }
+        nav ul li a:hover {
+            color: white;
+        }
+        nav ul li strong {
+            color: white; /* White for the brand text */
+        }
+
 
         /* Make table rows less tall */
         table td, table th {
@@ -26,7 +56,8 @@
 
         /* Make buttons inside tables smaller for more compact rows */
         td form button,
-        td a[role="button"] {
+        td a[role="button"],
+        td button {
             font-size: 0.75rem;
             padding: 0.25rem 0.5rem;
         }
@@ -48,14 +79,36 @@
         }
 
         /* ** NEW: Make the active navigation link bold ** */
-        nav a[aria-current="page"] {
-            font-weight: bold;
+        nav.top-nav a[aria-current="page"] {
+            color: #ff4500; /* Palo Alto Networks Red for active link */
         }
 
         /* ** NEW: A utility class for smaller, consistent buttons ** */
         .btn-small {
             font-size: 0.85rem !important;
             padding: 0.4rem 0.8rem !important;
+        }
+
+        /* ** NEW: Branded button color for primary actions ** */
+        .btn-panw {
+            background-color: #ff4500;
+            border-color: #ff4500;
+            color: #ffffff;
+        }
+        .btn-panw:hover {
+            background-color: #e03e00; /* Darker red on hover */
+            border-color: #e03e00;
+        }
+
+        /* ** NEW: Branded outline button color ** */
+        .btn-panw-outline {
+            border-color: #ff4500;
+            color: #ff4500;
+        }
+        .btn-panw-outline:hover {
+            background-color: #ff4500;
+            border-color: #ff4500;
+            color: #ffffff;
         }
 
         /* ** NEW: Pulsating animation for the status indicator ** */
@@ -65,24 +118,22 @@
             100% { opacity: 1; }
         }
         .status-indicator {
-            color: red !important;
+            color: white !important; /* White pulse for the dark background */
             font-weight: bold !important;
             animation: pulse 1.5s infinite;
         }
     </style>
   </head>
   <body>
-    <main class="container">
-        <nav>
+    <nav class="top-nav">
+        <div class="container-fluid">
             <ul>
-                <li><strong>PAN-OS Monitor</strong>
-                    {# ** NEW: Background Task Status Indicator (Moved) ** #}
-                    {% if background_task_is_running %}
-                    <span aria-busy="true" class="status-indicator" style="margin-left: 1rem; font-size: 0.9rem;">Refreshing data...</span>
-                    {% endif %}
+                <li>
+                    <div class="brand">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-12h2v6h-2zm0 8h2v2h-2z" fill="#ff4500"></path><path d="M11.25 12.55c0-.4.1-.77.29-1.1.19-.33.46-.6.8-.81.34-.21.74-.31 1.19-.31.45 0 .84.1 1.18.31.34.21.6.48.79.81.19.33.29.7.29 1.1v.19c0 .4-.1.77-.29 1.1-.19.33-.45.6-.79.81-.34-.21-.73.31-1.18.31-.45 0-.85-.1-1.19-.31-.34-.21-.61-.48-.8-.81-.19-.33-.29-.7-.29-1.1v-.19zm1.49 1.04c.1.13.23.23.39.31.16.08.34.12.53.12.19 0 .37-.04.53-.12.16-.08.29-.18.39-.31.1-.13.17-.28.21-.45.04-.17.06-.35.06-.53s-.02-.36-.06-.53c-.04-.17-.11-.32-.21-.45-.1-.13-.23-.23-.39-.31-.16-.08-.34-.12-.53-.12-.19 0-.37-.04-.53-.12-.16-.08-.29-.18-.39-.31-.1-.13-.17-.28-.21-.45-.04-.17-.06-.35-.06-.53s.02-.36.06-.53c.04-.17.11-.32.21-.45z" fill="#ff4500"></path></svg>
+                        <strong>PAN-OS Monitor</strong>
+                    </div>
                 </li>
-            </ul>
-            <ul>
                 <li><a href="{{ url_for('index') }}" {% if request.endpoint == 'index' %}aria-current="page"{% endif %}>Dashboard</a></li>
                 <li><a href="{{ url_for('capacity_dashboard') }}" {% if request.endpoint == 'capacity_dashboard' %}aria-current="page"{% endif %}>Capacity</a></li>
                 <li><a href="{{ url_for('alerts') }}" {% if request.endpoint == 'alerts' %}aria-current="page"{% endif %}>Alerts</a></li>
@@ -91,8 +142,14 @@
                 <li><a href="{{ url_for('manage_firewalls') }}" {% if request.endpoint == 'manage_firewalls' %}aria-current="page"{% endif %}>Manage Firewalls</a></li>
                 <li><a href="{{ url_for('manage_models') }}" {% if request.endpoint == 'manage_models' %}aria-current="page"{% endif %}>Manage Models</a></li>
                 <li><a href="{{ url_for('settings') }}" {% if request.endpoint == 'settings' %}aria-current="page"{% endif %}>Settings</a></li>
+                {# ** NEW: Background Task Status Indicator (Moved) ** #}
+                {% if background_task_is_running %}
+                <li><span aria-busy="true" class="status-indicator" style="font-size: 0.9rem;">Refreshing data...</span></li>
+                {% endif %}
             </ul>
-        </nav>
+        </div>
+    </nav>
+    <main class="container" style="padding-top: 2rem;">
         
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
