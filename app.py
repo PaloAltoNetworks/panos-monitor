@@ -504,7 +504,7 @@ def _re_evaluate_alerts(conn, alert_threshold):
                     exists = conn.execute("SELECT 1 FROM alerts WHERE firewall_id = ? AND metric_name = ? AND acknowledged = 0", (fw['firewall_id'], label)).fetchone()
                     if not exists:
                         conn.execute("INSERT INTO alerts (firewall_id, metric_name, utilization, timestamp) VALUES (?, ?, ?, ?)",
-                                     (fw['firewall_id'], label, utilization, datetime.now()))
+                                     (fw['firewall_id'], label, utilization, datetime.now().isoformat()))
     conn.commit()
 
 @app.route('/export/csv/<int:fw_id>')
@@ -1544,7 +1544,7 @@ def get_firewall_stats_for_timespan(conn, fw_id, timespan=None, start_date=None,
             title_prefix = "Raw Data"
     else:
         time_modifier_map = {'5m': '-5 minutes', '1h': '-1 hour', '6h': '-6 hours', '24h': '-24 hours', '7d': '-7 days', '30d': '-30 days'}
-        time_modifier = time_modifier_map.get(timespan, '-1 hour')
+        time_modifier = time_modifier_map.get(timespan, '-5 minutes') # Default to 5 minutes for safety
         where_clause = "timestamp >= datetime('now', 'localtime', ?)"
         query_params = (fw_id, time_modifier)
         if is_summarized:
