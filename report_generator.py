@@ -226,8 +226,8 @@ def generate_report_pdf(db_file, report_type, timespan=None, start_date=None, en
                 continue
 
             title_prefix = chart_data['title_prefix']
-            input_chart = create_chart_image(chart_data['labels'], [{'label': 'Input (Mbps)', 'data': chart_data['input_data_mbps'], 'color': 'blue'}], f"{title_prefix} Input Throughput", 'Mbps')
-            output_chart = create_chart_image(chart_data['labels'], [{'label': 'Output (Mbps)', 'data': chart_data['output_data_mbps'], 'color': 'red'}], f"{title_prefix} Output Throughput", 'Mbps')
+            input_chart = create_chart_image(chart_data['labels'], [{'label': 'Input (Mbps)', 'data': chart_data['input_data_mbps'], 'color': '#ff4500'}], f"{title_prefix} Input Throughput", 'Mbps')
+            output_chart = create_chart_image(chart_data['labels'], [{'label': 'Output (Mbps)', 'data': chart_data['output_data_mbps'], 'color': '#ff4500'}], f"{title_prefix} Output Throughput", 'Mbps')
             session_chart = create_chart_image(chart_data['labels'], [{'label': 'Active Sessions', 'data': chart_data['session_data'], 'color': 'green'}], f"{title_prefix} Active Sessions", 'Sessions')
             load_chart = create_chart_image(chart_data['labels'], [{'label': 'CPU Load (%)', 'data': chart_data['cpu_data'], 'color': 'orange'}, {'label': 'DP Load (%)', 'data': chart_data['dataplane_data'], 'color': 'purple'}], f"{title_prefix} CPU & Dataplane Load", 'Load %')
             chart_width, chart_height, margin = 130, 70, 15
@@ -257,8 +257,8 @@ def generate_report_pdf(db_file, report_type, timespan=None, start_date=None, en
                 pdf.set_font("Helvetica", "", 12); pdf.cell(0, 10, "No data for this period.", 0, 1, 'L'); continue
 
             title_prefix = chart_data['title_prefix']
-            input_chart = create_chart_image(chart_data['labels'], [{'label': 'Input (Mbps)', 'data': chart_data['input_data_mbps'], 'color': 'blue'}], f"{title_prefix} Input Throughput", 'Mbps')
-            output_chart = create_chart_image(chart_data['labels'], [{'label': 'Output (Mbps)', 'data': chart_data['output_data_mbps'], 'color': 'red'}], f"{title_prefix} Output Throughput", 'Mbps')
+            input_chart = create_chart_image(chart_data['labels'], [{'label': 'Input (Mbps)', 'data': chart_data['input_data_mbps'], 'color': '#ff4500'}], f"{title_prefix} Input Throughput", 'Mbps')
+            output_chart = create_chart_image(chart_data['labels'], [{'label': 'Output (Mbps)', 'data': chart_data['output_data_mbps'], 'color': '#ff4500'}], f"{title_prefix} Output Throughput", 'Mbps')
             session_chart = create_chart_image(chart_data['labels'], [{'label': 'Active Sessions', 'data': chart_data['session_data'], 'color': 'green'}], f"{title_prefix} Active Sessions", 'Sessions')
             load_chart = create_chart_image(chart_data['labels'], [{'label': 'CPU Load (%)', 'data': chart_data['cpu_data'], 'color': 'orange'}, {'label': 'DP Load (%)', 'data': chart_data['dataplane_data'], 'color': 'purple'}], f"{title_prefix} CPU & Dataplane Load", 'Load %')
             chart_width, chart_height, margin = 130, 70, 15
