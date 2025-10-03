@@ -3,7 +3,7 @@ from flask import Response, send_file
 import sqlite3
 import os
 import time
-import requests, shutil
+import requests, shutil, re
 from datetime import datetime
 import xml.etree.ElementTree as ET
 from urllib3.exceptions import InsecureRequestWarning
@@ -110,7 +110,7 @@ def get_db_connection():
 def init_db():
     conn = get_db_connection()
     conn.execute('PRAGMA foreign_keys = ON;')
-    conn.execute('''CREATE TABLE IF NOT EXISTS firewalls (id INTEGER PRIMARY KEY AUTOINCREMENT, ip_address TEXT UNIQUE NOT NULL, last_checked TIMESTAMP, status TEXT DEFAULT 'unknown');''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS firewalls (id INTEGER PRIMARY KEY AUTOINCREMENT, ip_address TEXT UNIQUE NOT NULL, last_checked TIMESTAMP, status TEXT DEFAULT 'unknown', last_poll_status TEXT);''')
     conn.execute('''CREATE TABLE IF NOT EXISTS stats (id INTEGER PRIMARY KEY AUTOINCREMENT, firewall_id INTEGER NOT NULL, timestamp TIMESTAMP NOT NULL, active_sessions INTEGER, ssl_decrypt_sessions INTEGER, total_input_bps REAL, total_output_bps REAL, cpu_load REAL, dataplane_load REAL, FOREIGN KEY (firewall_id) REFERENCES firewalls (id) ON DELETE CASCADE);''')
     # ** NEW: Table for firewall model specifications **
     conn.execute('''CREATE TABLE IF NOT EXISTS firewall_models (model TEXT PRIMARY KEY, generation TEXT, max_sessions INTEGER, max_throughput_mbps INTEGER, max_ssl_decrypt_sessions INTEGER);''')
@@ -130,6 +130,8 @@ def init_db():
         conn.execute("ALTER TABLE firewalls ADD COLUMN hostname TEXT;")
     if 'sw_version' not in columns:
         conn.execute("ALTER TABLE firewalls ADD COLUMN sw_version TEXT;")
+    if 'last_poll_status' not in columns:
+        conn.execute("ALTER TABLE firewalls ADD COLUMN last_poll_status TEXT;")
 
     # ** NEW: Table for detailed firewall specifications/capacities **
     conn.execute('''
@@ -264,6 +266,9 @@ def init_db():
     if 'max_ssl_decrypt_sessions' not in model_columns:
         print("Database schema outdated. Adding column 'max_ssl_decrypt_sessions' to 'firewall_models' table...")
         conn.execute("ALTER TABLE firewall_models ADD COLUMN max_ssl_decrypt_sessions INTEGER;")
+    if 'memory_utilization' not in stats_columns:
+        print("Database schema outdated. Adding column 'memory_utilization' to 'stats' table...")
+        conn.execute("ALTER TABLE stats ADD COLUMN memory_utilization REAL;")
 
     # ** NEW: One-time data seeding from pa_models.py to the database **
     seed_firewall_models(conn)
@@ -382,7 +387,8 @@ def index():
                (COALESCE(s.total_input_bps, 0) / 1000000) as total_input_mbps, 
                (COALESCE(s.total_output_bps, 0) / 1000000) as total_output_mbps,
                COALESCE(s.cpu_load, 0) as cpu_load,
-               COALESCE(s.dataplane_load, 0) as dataplane_load,
+               COALESCE(s.dataplane_load, 0) as dataplane_load, 
+               COALESCE(s.memory_utilization, 0) as memory_utilization,
                f.status
         FROM firewalls f
         LEFT JOIN (
@@ -811,7 +817,7 @@ def firewall_detail(fw_id):
             time_modifier = {'5m': '-5 minutes', '1h': '-1 hour', '6h': '-6 hours', '24h': '-24 hours', '7d': '-7 days', '30d': '-30 days'}.get(timespan, '-1 hour')
             where_clause = "timestamp >= datetime('now', 'localtime', ?)"
             query_params = (fw_id, time_modifier)
-        query_summary = f"SELECT MAX(active_sessions) as max_sessions, MAX(total_input_bps) as max_input, MAX(total_output_bps) as max_output, MAX(cpu_load) as max_cpu, MAX(dataplane_load) as max_dp FROM stats WHERE firewall_id = ? AND {where_clause};"
+        query_summary = f"SELECT MAX(active_sessions) as max_sessions, MAX(total_input_bps) as max_input, MAX(total_output_bps) as max_output, MAX(cpu_load) as max_cpu, MAX(dataplane_load) as max_dp, MAX(memory_utilization) as max_mem FROM stats WHERE firewall_id = ? AND {where_clause};"
         summary_stats = conn.execute(query_summary, query_params).fetchone()
     full_data = {"chart_data": chart_data, "summary_data": dict(summary_stats) if summary_stats else None, "details": dict(details) if details else {}}
     conn.close()
@@ -1525,8 +1531,10 @@ def poll_single_firewall(args):
         # API Calls
         session_xml = requests.get(f"https://{host}/api/?type=op&key={api_key}&cmd=<show><session><info/></session></show>", verify=False, timeout=15).content
         if_counter_xml = requests.get(f"https://{host}/api/?type=op&key={api_key}&cmd=<show><counter><interface>all</interface></counter></show>", verify=False, timeout=15).content
+        mem_xml = requests.get(f"https://{host}/api/?type=op&key={api_key}&cmd=<show><system><resources/></system></show>", verify=False, timeout=15).content
+        # ** NEW: Use the 'minute last 1' command for Dataplane CPU **
+        cpu_dp_xml = requests.get(f"https://{host}/api/?type=op&key={api_key}&cmd=<show><running><resource-monitor><minute><last>1</last></minute></resource-monitor></running></show>", verify=False, timeout=15).content
         ssl_decrypt_xml = requests.get(f"https://{host}/api/?type=op&key={api_key}&cmd=<show><session><all><filter><ssl-decrypt>yes</ssl-decrypt></filter></all></session></show>", verify=False, timeout=15).content
-        resource_xml = requests.get(f"https://{host}/api/?type=op&key={api_key}&cmd=<show><running><resource-monitor></resource-monitor></running></show>", verify=False, timeout=15).content
         
         # Process Session info
         session_tree = ET.fromstring(session_xml)
@@ -1536,31 +1544,60 @@ def poll_single_firewall(args):
         ssl_decrypt_tree = ET.fromstring(ssl_decrypt_xml)
         ssl_decrypt_sessions = len(ssl_decrypt_tree.findall('.//result/entry'))
 
-        # Process Resource monitor info
-        resource_tree = ET.fromstring(resource_xml)
+        # --- NEW: Initialize variables ---
+        memory_utilization = 0.0
         cpu_load = 0.0
         dataplane_load = 0.0
-        all_core_averages = []
-        
-        data_processors_node = resource_tree.find('.//data-processors')
+
+        # --- NEW: Get Management CPU from 'show system resources' ---
+        cdata = ET.fromstring(mem_xml).findtext('.//result')
+        if cdata:
+            # ** NEW: Use regex to reliably parse the 'us' value for Management CPU **
+            # This regex is designed to be flexible with spacing and capture the user space CPU percentage.
+            match = re.search(r"%Cpu\(s\):\s+([\d\.]+) us", cdata)
+            if match:
+                try:
+                    cpu_load = float(match.group(1))
+                except (ValueError, IndexError):
+                    pass # Could not parse CPU value
+
+        cdata = ET.fromstring(mem_xml).findtext('.//result')
+
+        # --- NEW: Parse memory from 'show system resources' (top) output ---
+        if cdata:
+            # Find the memory line, which can start with "KiB Mem" or "MiB Mem"
+            mem_line = next((line for line in cdata.split('\n') if 'KiB Mem' in line or 'MiB Mem' in line), None)
+            if mem_line:
+                parts = mem_line.split()
+                try:
+                    # Find 'total' and 'used' values by index
+                    total_mem_index = parts.index('total,') - 1
+                    used_mem_index = parts.index('used,') - 1
+                    total_mem = float(parts[total_mem_index])
+                    used_mem = float(parts[used_mem_index])
+                    if total_mem > 0:
+                        memory_utilization = (used_mem / total_mem) * 100
+                except (ValueError, IndexError):
+                    pass # Could not parse memory line
+
+        # --- NEW: Get Dataplane CPU from 'show running resource-monitor' ---
+        core_loads = []
+        data_processors_node = ET.fromstring(cpu_dp_xml).find('.//data-processors')
         if data_processors_node is not None:
             for dp_node in data_processors_node:
-                minute_node = dp_node.find('minute')
-                if minute_node is not None:
-                    cpu_avg_node = minute_node.find('cpu-load-average')
-                    if cpu_avg_node is not None:
-                        for core_entry in cpu_avg_node.findall('entry'):
-                            value_str = core_entry.findtext('value')
-                            if value_str:
-                                second_loads = [int(v) for v in value_str.split(',') if v.isdigit()]
-                                if second_loads:
-                                    all_core_averages.append(sum(second_loads) / len(second_loads))
-        
-        if all_core_averages:
-            # ** CHANGE: The raw values appear to be scaled by a factor of 10. **
-            # We multiply by 10 here to get the true percentage.
-            dataplane_load = (sum(all_core_averages) / len(all_core_averages)) * 10
-            cpu_load = max(all_core_averages) * 10
+                # The command gives us the <minute> block directly.
+                # We parse the cpu-load-average from it.
+                cpu_avg_node = dp_node.find('.//minute/cpu-load-average')
+                if cpu_avg_node is not None:
+                    for core_entry in cpu_avg_node.findall('entry'):
+                        value_str = core_entry.findtext('value')
+                        if value_str:
+                            # The value should be a single integer representing the average.
+                            core_loads.append(int(value_str))
+
+        if core_loads:
+            # DP load is the average across all cores
+            dataplane_load = sum(core_loads) / len(core_loads)
 
         # Process Throughput info
         current_timestamp = time.time()
@@ -1582,7 +1619,8 @@ def poll_single_firewall(args):
                 "total_input_bps": total_in_bps, 
                 "total_output_bps": total_out_bps,
                 "cpu_load": cpu_load,
-                "dataplane_load": dataplane_load
+                "dataplane_load": dataplane_load,
+                "memory_utilization": memory_utilization
             },
             "new_state": {'counters': current_counters, 'timestamp': current_timestamp}
         }
@@ -1691,8 +1729,8 @@ def background_worker_loop():
                     s = res['data']
                     if s['total_input_bps'] > 0 or s['total_output_bps'] > 0 or s['active_sessions'] > 0:
                         conn.execute(
-                            'INSERT INTO stats (firewall_id, timestamp, active_sessions, ssl_decrypt_sessions, total_input_bps, total_output_bps, cpu_load, dataplane_load) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                            (firewall_id, timestamp_now_str, s['active_sessions'], s['ssl_decrypt_sessions'], s['total_input_bps'], s['total_output_bps'], s['cpu_load'], s['dataplane_load'])
+                            'INSERT INTO stats (firewall_id, timestamp, active_sessions, ssl_decrypt_sessions, total_input_bps, total_output_bps, cpu_load, dataplane_load, memory_utilization) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                            (firewall_id, timestamp_now_str, s['active_sessions'], s['ssl_decrypt_sessions'], s['total_input_bps'], s['total_output_bps'], s['cpu_load'], s['dataplane_load'], s['memory_utilization'])
                         )
             
             # --- NEW: Prune old statistics ---
@@ -1742,14 +1780,14 @@ def get_firewall_stats_for_timespan(conn, fw_id, timespan=None, start_date=None,
     if is_summarized:
         query = f"""
             SELECT strftime('{date_format_sql}', timestamp) as period,
-                   MAX(active_sessions) as sessions, MAX(total_input_bps) as input_bps,
+                   MAX(active_sessions) as sessions, MAX(memory_utilization) as mem, MAX(total_input_bps) as input_bps,
                    MAX(total_output_bps) as output_bps, MAX(cpu_load) as cpu, MAX(dataplane_load) as dp, MAX(ssl_decrypt_sessions) as ssl_sessions
             FROM stats WHERE firewall_id = ? AND {where_clause}
             GROUP BY period ORDER BY period ASC;
         """
     else: # Raw data query
         query = f"""
-            SELECT timestamp, active_sessions as sessions, total_input_bps as input_bps,
+            SELECT timestamp, active_sessions as sessions, memory_utilization as mem, total_input_bps as input_bps,
                    total_output_bps as output_bps, cpu_load as cpu, dataplane_load as dp, ssl_decrypt_sessions as ssl_sessions
             FROM stats WHERE firewall_id = ? AND {where_clause}
             ORDER BY timestamp ASC;
@@ -1772,6 +1810,7 @@ def get_firewall_stats_for_timespan(conn, fw_id, timespan=None, start_date=None,
         "input_data_mbps": [(s['input_bps'] or 0) / 1000000 for s in stats],
         "output_data_mbps": [(s['output_bps'] or 0) / 1000000 for s in stats],
         "cpu_data": [s['cpu'] or 0 for s in stats],
+        "mem_data": [s['mem'] or 0 for s in stats],
         "dataplane_data": [s['dp'] or 0 for s in stats],
         "title_prefix": title_prefix
     }

@@ -34,6 +34,7 @@
                 <th>Last Updated</th>
                 <th>Active Sessions</th>
                 <th>CPU Load</th>
+                <th>Memory</th>
                 <th>DP Load</th>
                 <th>Total Input</th>
                 <th>Total Output</th>
@@ -55,6 +56,7 @@
                 <td>{{ stat.timestamp or 'N/A' }}</td>
                 <td>{{ stat.active_sessions or 'N/A' }}</td>
                 <td>{{ stat.cpu_load | round(2) }}%</td>
+                <td>{{ stat.memory_utilization | round(2) }}%</td>
                 <td>{{ stat.dataplane_load | round(2) }}%</td>
                 <td>{{ (stat.total_input_mbps | default(0)) | round(2) }} Mbps</td>
                 <td>{{ (stat.total_output_mbps | default(0)) | round(2) }} Mbps</td>
@@ -70,7 +72,7 @@
             </tr>
             {% else %}
             {# **CHANGE**: Updated colspan to account for the new column #}
-            <td colspan="11">No statistics found. Add some firewalls and wait for the poller to run.</td>
+            <td colspan="12">No statistics found. Add some firewalls and wait for the poller to run.</td>
             </tr>
             {% endfor %}
         </tbody>

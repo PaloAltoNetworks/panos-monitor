@@ -242,6 +242,7 @@ The application interacts with your Palo Alto Networks firewalls using the XML A
         *   **Active Sessions:** `<show><session><info/></session></show>`
         *   **Interface Counters:** `<show><counter><interface>all</interface></counter></show>`
         *   **Resource Monitor (CPU/DP Load):** `<show><running><resource-monitor></resource-monitor></running></show>`
+        *   **System Resources (Memory):** `<show><system><resources/></system></show>`
 
 7.  **Panorama Device Import**
     *   **API Type:** `type=op`

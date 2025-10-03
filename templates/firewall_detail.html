@@ -148,6 +148,7 @@
                                 <tr><td>Peak Output</td><td>{{ (full_data.summary_data.max_output / 1000000) | round(2) }} Mbps</td></tr>
                                 <tr><td>Peak CPU Load</td><td>{{ full_data.summary_data.max_cpu | round(2) }}%</td></tr>
                                 <tr><td>Peak DP Load</td><td>{{ full_data.summary_data.max_dp | round(2) }}%</td></tr>
+                                <tr><td>Peak Memory</td><td>{{ full_data.summary_data.max_mem | round(2) }}%</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -177,6 +178,10 @@
                 <h4>{{ full_data.chart_data.title_prefix }} SSL Decrypt Sessions</h4>
                 <canvas id="sslSessionChart"></canvas>
             </article>
+            <article>
+                <h4>{{ full_data.chart_data.title_prefix }} Memory Utilization (%)</h4>
+                <canvas id="memChart"></canvas>
+            </article>
         </div>
     {% else %}
         <article><p>No historical data available for this firewall in the selected timeframe.</p></article>
@@ -185,12 +190,13 @@
     <script>
     {% if full_data %}
         const chartData = {{ full_data.chart_data | tojson }};
-        const labels = chartData.labels; const inputData = chartData.input_data_mbps; const outputData = chartData.output_data_mbps; const sessionData = chartData.session_data; const sslSessionData = chartData.ssl_session_data; const cpuData = chartData.cpu_data; const dataplaneData = chartData.dataplane_data;
+        const labels = chartData.labels; const inputData = chartData.input_data_mbps; const outputData = chartData.output_data_mbps; const sessionData = chartData.session_data; const sslSessionData = chartData.ssl_session_data; const cpuData = chartData.cpu_data; const memData = chartData.mem_data; const dataplaneData = chartData.dataplane_data;
         const inputCtx = document.getElementById('inputChart'); if (inputCtx) { new Chart(inputCtx, { type: 'line', data: { labels: labels, datasets: [ { label: 'Input (Mbps)', data: inputData, borderColor: '#ff4500', backgroundColor: 'rgba(255, 69, 0, 0.1)', fill: true, tension: 0.1 } ] }, options: { scales: { y: { beginAtZero: true } } } }); }
         const outputCtx = document.getElementById('outputChart'); if (outputCtx) { new Chart(outputCtx, { type: 'line', data: { labels: labels, datasets: [ { label: 'Output (Mbps)', data: outputData, borderColor: '#ff4500', backgroundColor: 'rgba(255, 69, 0, 0.1)', fill: true, tension: 0.1 } ] }, options: { scales: { y: { beginAtZero: true } } } }); }
         const sessionCtx = document.getElementById('sessionChart'); if (sessionCtx) { new Chart(sessionCtx, { type: 'line', data: { labels: labels, datasets: [{ label: 'Active Sessions', data: sessionData, borderColor: 'rgb(75, 192, 192)', fill: false, tension: 0.1 }] }, options: { scales: { y: { beginAtZero: true } } } }); }
         const loadCtx = document.getElementById('loadChart'); if (loadCtx) { new Chart(loadCtx, { type: 'line', data: { labels: labels, datasets: [ { label: 'CPU Load (Peak Core %)', data: cpuData, borderColor: 'rgb(255, 159, 64)', fill: false, tension: 0.1 }, { label: 'Dataplane Load (Avg %)', data: dataplaneData, borderColor: 'rgb(153, 102, 255)', fill: false, tension: 0.1 } ] }, options: { scales: { y: { beginAtZero: true, max: 100 } } } }); }
         const sslSessionCtx = document.getElementById('sslSessionChart'); if (sslSessionCtx) { new Chart(sslSessionCtx, { type: 'line', data: { labels: labels, datasets: [{ label: 'Active SSL Decrypt Sessions', data: sslSessionData, borderColor: 'rgb(255, 205, 86)', fill: false, tension: 0.1 }] }, options: { scales: { y: { beginAtZero: true } } } }); }
+        const memCtx = document.getElementById('memChart'); if (memCtx) { new Chart(memCtx, { type: 'line', data: { labels: labels, datasets: [{ label: 'Memory Utilization (%)', data: memData, borderColor: 'rgb(54, 162, 235)', fill: false, tension: 0.1 }] }, options: { scales: { y: { beginAtZero: true, max: 100 } } } }); }
     {% endif %}
     </script>
 {% endblock %}
