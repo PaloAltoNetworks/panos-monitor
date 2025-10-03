@@ -1,11 +1,6 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<style>
-  main.container {
-    max-width: 1600px;
-  }
-</style>
 
 <h2>Model Specifications</h2>
 <p>Add, remove, or view hardware specifications for different firewall models. This data is used by the Upgrade Advisor.</p>
@@ -13,10 +8,11 @@
 <div class="grid">
     <article>
         <h4>Add New Model</h4>
-        <form action="{{ url_for('add_model') }}" method="post">
+        <form id="model-form" action="{{ url_for('add_model') }}" method="post">
             <div class="grid">
                 <label for="model">
                     Model Name
+                    <!-- ** NEW: Add readonly attribute for JS to toggle ** -->
                     <input type="text" id="model" name="model" placeholder="e.g., PA-440" required>
                 </label>
                 <label for="generation">
@@ -38,43 +34,110 @@
                     <input type="number" id="max_ssl_decrypt_sessions" name="max_ssl_decrypt_sessions" placeholder="e.g., 4200" required>
                 </label>
             </div>
-            <button type="submit" class="btn-small btn-panw">Add Model</button>
+            <!-- ** NEW: Add IDs to buttons for JS manipulation ** -->
+            <button id="form-submit-btn" type="submit" class="btn-small btn-panw">Add Model</button>
+            <button type="button" id="form-cancel-btn" class="secondary outline btn-small" style="display:none;" onclick="resetForm()">Cancel</button>
         </form>
     </article>
 </div>
 
 <article>
     <h4>Existing Models</h4>
-    <div class="table-container">
-        <table>
-            <thead>
-                <tr>
-                    <th>Model</th>
-                    <th>Generation</th>
-                    <th>Max Sessions</th>
-                    <th>Max Throughput (Mbps)</th>
-                    <th>Max SSL Decrypt Sessions</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for model in models %}
-                <tr>
-                    <td>{{ model.model }}</td>
-                    <td>{{ model.generation }}</td>
-                    <td>{{ "{:,}".format(model.max_sessions) }}</td>
-                    <td>{{ "{:,}".format(model.max_throughput_mbps) }}</td>
-                    <td>{{ "{:,}".format(model.max_ssl_decrypt_sessions) if model.max_ssl_decrypt_sessions is not none else 'N/A' }}</td>
-                    <td>
-                        <form action="{{ url_for('delete_model') }}" method="post" onsubmit="return confirm('Are you sure you want to delete this model?');" style="margin-bottom: 0;">
-                            <input type="hidden" name="model" value="{{ model.model }}">
-                            <button type="submit" class="secondary outline btn-small">Delete</button>
-                        </form>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
+    <form action="{{ url_for('delete_models') }}" method="post" onsubmit="return confirm('Are you sure you want to delete the selected models?');">
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 5%;"><input type="checkbox" id="select-all"></th>
+                        <th>Model</th>
+                        <th>Generation</th>
+                        <th>Max Sessions</th>
+                        <th>Max Throughput (Mbps)</th>
+                        <th>Max SSL Decrypt Sessions</th>
+                        <th style="width: 10%;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for model in models %}
+                    <tr>
+                        <td><input type="checkbox" name="model_names" value="{{ model.model }}" class="model-checkbox"></td>
+                        <td>{{ model.model }}</td>
+                        <td>{{ model.generation }}</td>
+                        <td>{{ "{:,}".format(model.max_sessions) }}</td>
+                        <td>{{ "{:,}".format(model.max_throughput_mbps) }}</td>
+                        <td>{{ "{:,}".format(model.max_ssl_decrypt_sessions) if model.max_ssl_decrypt_sessions is not none else 'N/A' }}</td>
+                        <!-- ** NEW: Add Modify button ** -->
+                        <td>
+                            <button type="button" class="secondary outline btn-small" 
+                                    onclick="editModel(
+                                        '{{ model.model }}', 
+                                        '{{ model.generation }}', 
+                                        '{{ model.max_sessions }}', 
+                                        '{{ model.max_throughput_mbps }}',
+                                        '{{ model.max_ssl_decrypt_sessions if model.max_ssl_decrypt_sessions is not none else '' }}'
+                                    )">
+                                Modify
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if models %}
+        <button type="submit" class="btn-small btn-panw">Delete Selected</button>
+        {% endif %}
+    </form>
 </article>
+
+<script>
+    const modelForm = document.getElementById('model-form');
+    const modelInput = document.getElementById('model');
+    const generationInput = document.getElementById('generation');
+    const sessionsInput = document.getElementById('max_sessions');
+    const throughputInput = document.getElementById('max_throughput');
+    const sslInput = document.getElementById('max_ssl_decrypt_sessions');
+    const submitBtn = document.getElementById('form-submit-btn');
+    const cancelBtn = document.getElementById('form-cancel-btn');
+    const addModelAction = "{{ url_for('add_model') }}";
+    const updateModelAction = "{{ url_for('update_model') }}";
+
+    function editModel(model, generation, max_sessions, max_throughput, max_ssl) {
+        modelForm.action = updateModelAction;
+        modelInput.value = model;
+        modelInput.readOnly = true; // Make model name readonly during edit
+        generationInput.value = generation;
+        sessionsInput.value = max_sessions;
+        throughputInput.value = max_throughput;
+        sslInput.value = max_ssl;
+        
+        submitBtn.textContent = 'Update Model';
+        cancelBtn.style.display = 'inline-block';
+        window.scrollTo(0, 0); // Scroll to top to see the form
+    }
+
+    function resetForm() {
+        modelForm.action = addModelAction;
+        modelForm.reset(); // Clears all form fields
+        modelInput.readOnly = false;
+        submitBtn.textContent = 'Add Model';
+        cancelBtn.style.display = 'none';
+    }
+
+    // --- Existing script for checkboxes ---
+    document.getElementById('select-all').addEventListener('change', function(event) {
+        const checkboxes = document.querySelectorAll('.model-checkbox');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = event.target.checked;
+        });
+    });
+
+    document.querySelectorAll('.model-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            const allCheckboxes = document.querySelectorAll('.model-checkbox');
+            const allChecked = Array.from(allCheckboxes).every(cb => cb.checked);
+            document.getElementById('select-all').checked = allChecked;
+        });
+    });
+</script>
 {% endblock %}

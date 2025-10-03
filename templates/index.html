@@ -1,19 +1,15 @@
 {% extends 'base.html' %}
 
 {% block content %}
-
 <style>
-  main.container {
-    max-width: 1600px;
-  }
-  /* ** NEW: Change link color to match brand theme ** */
+/* ** NEW: Change link color to match brand theme ** */
   .table-container a {
       color: #ff4500;
   }
 </style>
 
 <h2>Firewall Status Dashboard</h2>
-    
+
 <p>Showing the latest statistics from the last successful poll. Auto-refreshes every {{ polling_interval }} seconds.</p>
 
 <div class="table-container">

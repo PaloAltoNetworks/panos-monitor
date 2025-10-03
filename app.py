@@ -21,6 +21,45 @@ KEY_FILE = "secret.key"
 # Suppress insecure request warnings
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
+# --- NEW: Import FPDF for the custom PDF class ---
+from fpdf import FPDF
+
+# --- NEW: Custom PDF class for branded header and footer ---
+class PDF(FPDF):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.PANW_RED = (255, 69, 0)
+        self.PANW_GRAY = (70, 70, 70)
+        # Correctly join path relative to the app's location
+        self.LOGO_PATH = os.path.join(os.path.dirname(__file__), 'static', 'panw-logo.png')
+        self._draw_header_footer = True
+
+    def set_draw_header_footer(self, draw):
+        self._draw_header_footer = draw
+
+    def header(self):
+        if not self._draw_header_footer: return
+        if os.path.exists(self.LOGO_PATH):
+            self.image(self.LOGO_PATH, 10, 8, 33)
+        self.set_font('Helvetica', 'B', 20)
+        self.set_text_color(*self.PANW_RED)
+        self.cell(0, 10, 'PAN-OS Performance & Capacity Report', 0, 1, 'C')
+        self.ln(5)
+        # Draw a line under the header
+        self.set_draw_color(*self.PANW_RED)
+        self.line(10, 30, self.w - 10, 30)
+        self.ln(10)
+
+    def footer(self):
+        if not self._draw_header_footer: return
+        self.set_y(-15)
+        self.set_font('Helvetica', 'I', 8)
+        # Add a watermark logo
+        if os.path.exists(self.LOGO_PATH):
+            self.image(self.LOGO_PATH, x=self.w - 40, y=self.h - 12, w=8, link='', type='PNG')
+        self.set_text_color(128)
+        self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
+
 # --- Encryption Functions ---
 def generate_key():
     key = Fernet.generate_key()
@@ -910,11 +949,18 @@ def import_from_panorama():
     thread.start()
     return flask.redirect(flask.url_for('manage_firewalls'))
 
-@app.route('/delete_firewall/<int:fw_id>', methods=['POST'])
-def delete_firewall(fw_id):
-    conn = get_db_connection()
-    conn.execute('DELETE FROM firewalls WHERE id = ?', (fw_id,)); conn.commit()
-    conn.close()
+@app.route('/delete_firewalls', methods=['POST'])
+def delete_firewalls():
+    """Deletes multiple firewalls based on checkbox selections."""
+    fw_ids_to_delete = flask.request.form.getlist('firewall_ids')
+    if fw_ids_to_delete:
+        conn = get_db_connection()
+        conn.executemany("DELETE FROM firewalls WHERE id = ?", [(id,) for id in fw_ids_to_delete])
+        conn.commit()
+        conn.close()
+        flask.flash(f"Deleted {len(fw_ids_to_delete)} firewall(s).", "success")
+    else:
+        flask.flash("No firewalls selected for deletion.", "warning")
     return flask.redirect(flask.url_for('manage_firewalls'))
 
 # --- NEW: Routes for Managing Firewall Models ---
@@ -943,13 +989,35 @@ def add_model():
         conn.close()
     return flask.redirect(flask.url_for('model_specs'))
 
-@app.route('/delete_model', methods=['POST'])
-def delete_model():
+@app.route('/update_model', methods=['POST'])
+def update_model():
+    """Updates an existing firewall model's specifications."""
     conn = get_db_connection()
-    conn.execute('DELETE FROM firewall_models WHERE model = ?', (flask.request.form['model'],))
-    conn.commit()
-    conn.close()
-    flask.flash(f"Model '{flask.request.form['model']}' deleted successfully.", "success")
+    try:
+        conn.execute(
+            "UPDATE firewall_models SET generation = ?, max_sessions = ?, max_throughput_mbps = ?, max_ssl_decrypt_sessions = ? WHERE model = ?",
+            (flask.request.form['generation'], flask.request.form['max_sessions'], flask.request.form['max_throughput'], flask.request.form['max_ssl_decrypt_sessions'], flask.request.form['model'])
+        )
+        conn.commit()
+        flask.flash(f"Model '{flask.request.form['model']}' updated successfully.", "success")
+    except Exception as e:
+        flask.flash(f"An error occurred while updating the model: {e}", "error")
+    finally:
+        conn.close()
+    return flask.redirect(flask.url_for('model_specs'))
+
+@app.route('/delete_models', methods=['POST'])
+def delete_models():
+    """Deletes multiple firewall models based on checkbox selections."""
+    model_names_to_delete = flask.request.form.getlist('model_names')
+    if model_names_to_delete:
+        conn = get_db_connection()
+        conn.executemany("DELETE FROM firewall_models WHERE model = ?", [(name,) for name in model_names_to_delete])
+        conn.commit()
+        conn.close()
+        flask.flash(f"Deleted {len(model_names_to_delete)} model(s).", "success")
+    else:
+        flask.flash("No models selected for deletion.", "warning")
     return flask.redirect(flask.url_for('model_specs'))
 
 def _refresh_specs_worker():
@@ -1609,12 +1677,12 @@ def get_firewall_stats_for_timespan(conn, fw_id, timespan=None, start_date=None,
 
     return {
         "labels": labels,
-        "session_data": [s['sessions'] for s in stats],
-        "ssl_session_data": [s['ssl_sessions'] for s in stats],
-        "input_data_mbps": [s['input_bps'] / 1000000 for s in stats],
-        "output_data_mbps": [s['output_bps'] / 1000000 for s in stats],
-        "cpu_data": [s['cpu'] for s in stats],
-        "dataplane_data": [s['dp'] for s in stats],
+        "session_data": [s['sessions'] or 0 for s in stats],
+        "ssl_session_data": [s['ssl_sessions'] or 0 for s in stats],
+        "input_data_mbps": [(s['input_bps'] or 0) / 1000000 for s in stats],
+        "output_data_mbps": [(s['output_bps'] or 0) / 1000000 for s in stats],
+        "cpu_data": [s['cpu'] or 0 for s in stats],
+        "dataplane_data": [s['dp'] or 0 for s in stats],
         "title_prefix": title_prefix
     }
 
@@ -1629,5 +1697,4 @@ if __name__ == '__main__':
     worker_thread = threading.Thread(target=background_worker_loop, daemon=True)
     worker_thread.start()
     log = logging.getLogger('werkzeug')
-    log.setLevel(logging.ERROR)    
     app.run(host='0.0.0.0', port=4000, debug=False)

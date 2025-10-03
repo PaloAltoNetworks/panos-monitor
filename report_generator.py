@@ -1,16 +1,15 @@
 import sqlite3
 import io
 import tempfile
+import os
 from datetime import datetime
-import matplotlib
-from fpdf import FPDF
+import matplotlib # Keep this import
 import matplotlib.pyplot as plt # Keep this import
 
 # Use a backend that doesn't require a GUI
 matplotlib.use('Agg')
 
-# --- NEW: Import the centralized data fetching function from app.py ---
-from app import get_firewall_stats_for_timespan as _fetch_and_process_data
+from app import get_firewall_stats_for_timespan as _fetch_and_process_data, PDF
 
 # --- NEW: Remove import from pa_models.py ---
 # from pa_models import SPECS_MAP
@@ -43,18 +42,42 @@ def create_chart_image(labels, datasets, title, y_label):
     plt.close(fig)
     return buf
 
+def create_title_page(pdf, report_title):
+    """Generates a title page for the report."""
+    pdf.set_draw_header_footer(False) # Disable header/footer for this page
+    pdf.add_page()
+
+    # Get page dimensions
+    page_w = pdf.w
+    page_h = pdf.h
+
+    # A very light gray background for a subtle, professional look
+    pdf.set_fill_color(245, 245, 245)
+    pdf.rect(0, 0, page_w, page_h, 'F')
+
+    # Main Title
+    pdf.set_y(page_h / 2 - 20) # Position vertically centered
+    pdf.set_font('Helvetica', 'B', 36)
+    pdf.set_text_color(*pdf.PANW_RED)
+    pdf.cell(0, 10, 'PAN-OS Performance & Capacity Report', 0, 1, 'C')
+    pdf.ln(10)
+
+    # Subtitle (the specific report range)
+    pdf.set_font('Helvetica', '', 18)
+    pdf.set_text_color(*pdf.PANW_GRAY)
+    pdf.cell(0, 10, report_title, 0, 1, 'C')
+    pdf.set_draw_header_footer(True) # Re-enable for subsequent pages
+
 def create_summary_table_page(pdf, firewalls, conn, title, specs_map, timespan=None, start_date=None, end_date=None):
     """Generates the first page of the report with a summary table."""
     pdf.add_page()
-    pdf.set_font("Helvetica", "B", 24)
-    pdf.cell(0, 50, "PAN-OS Performance Report", 0, 1, 'C')
-    pdf.set_font("Helvetica", "", 16)
+    pdf.set_font("Helvetica", "B", 16)
     pdf.cell(0, 10, title, 0, 1, 'C')
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 10, "Peak Statistics Summary", 0, 1, 'C')
     pdf.set_font("Helvetica", "", 10)
     pdf.cell(0, 10, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", 0, 1, 'C')
     pdf.ln(5)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 10, "Peak Statistics Summary", 0, 1, 'L')
 
     if start_date and end_date:
         where_clause = "timestamp BETWEEN ? AND ?"
@@ -64,7 +87,9 @@ def create_summary_table_page(pdf, firewalls, conn, title, specs_map, timespan=N
         where_clause = "timestamp >= datetime('now', 'localtime', ?)"
         query_params_base = (time_modifier,)
     
-    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_fill_color(230, 230, 230) # Light gray for header
+    pdf.set_text_color(0)
     pdf.cell(40, 8, 'Device-Name', 1, 0, 'C')
     pdf.cell(30, 8, 'Firewall IP', 1, 0, 'C')
     pdf.cell(25, 8, 'Model', 1, 0, 'C')
@@ -76,7 +101,7 @@ def create_summary_table_page(pdf, firewalls, conn, title, specs_map, timespan=N
     pdf.cell(25, 8, 'Peak DP Load (%)', 1, 0, 'C')
     pdf.ln()
 
-    pdf.set_font("Helvetica", "", 8)
+    pdf.set_font("Helvetica", "", 7)
     for fw in firewalls:
         query = f"SELECT MAX(active_sessions) as max_sessions, MAX(total_input_bps) as max_input, MAX(total_output_bps) as max_output, MAX(cpu_load) as max_cpu, MAX(dataplane_load) as max_dp FROM stats WHERE firewall_id = ? AND {where_clause};"
         query_params = (fw['id'],) + query_params_base
@@ -100,11 +125,11 @@ def create_summary_table_page(pdf, firewalls, conn, title, specs_map, timespan=N
 def create_capacity_report_page(pdf, firewalls, conn):
     """Generates pages for the capacity report."""
     pdf.add_page()
-    pdf.set_font("Helvetica", "B", 24)
-    pdf.cell(0, 50, "PAN-OS Capacity Report", 0, 1, 'C')
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 10, "Device Capacity Details", 0, 1, 'C')
     pdf.set_font("Helvetica", "", 12)
     pdf.cell(0, 10, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", 0, 1, 'C')
-    pdf.ln(5)
+    pdf.ln(10)
 
     query = """
         SELECT
@@ -137,15 +162,17 @@ def create_capacity_report_page(pdf, firewalls, conn):
             pdf.ln(10)
             continue
 
-        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_fill_color(230, 230, 230)
+        pdf.set_text_color(0)
         pdf.cell(70, 8, 'Metric', 1, 0, 'C')
         pdf.cell(40, 8, 'Current Usage', 1, 0, 'C')
         pdf.cell(40, 8, 'Max Capacity', 1, 0, 'C')
         pdf.cell(40, 8, 'Utilization', 1, 1, 'C')
 
-        pdf.set_font("Helvetica", "", 8)
+        pdf.set_font("Helvetica", "", 7)
         metrics = [
-            ('Security Rules', 'current_rules', 'max_rules'), ('NAT Rules', 'current_nat_rules', 'max_nat_rules'),
+            ('Security Rules', 'current_rules', 'max_rules'), ('NAT Rules', 'current_nat_rules', 'max_nat_rules'), ('SSL Decryption Sessions', 'current_ssl_decrypt_sessions', 'max_ssl_decrypt_sessions'),
             ('Address Objects', 'current_address_objects', 'max_address_objects'), ('Service Objects', 'current_service_objects', 'max_service_objects'),
             ('IPsec Tunnels', 'current_ipsec_tunnels', 'max_ipsec_tunnels'), ('Routes', 'current_routes', 'max_routes'),
             ('Multicast Routes', 'current_mroutes', 'max_mroutes'), ('ARP Entries', 'current_arp_entries', 'max_arp_entries'),
@@ -156,6 +183,14 @@ def create_capacity_report_page(pdf, firewalls, conn):
             current_val = fw_data[current_key] if fw_data[current_key] is not None else 'N/A'
             max_val = fw_data[max_key] if fw_data[max_key] is not None else 'N/A'
             util = (current_val / max_val * 100) if isinstance(current_val, int) and isinstance(max_val, int) and max_val > 0 else 0
+            
+            # Set text color for high utilization
+            if util >= 80:
+                pdf.set_text_color(255, 0, 0) # Red
+            elif util >= 60:
+                pdf.set_text_color(255, 165, 0) # Orange
+            else:
+                pdf.set_text_color(0) # Black
             pdf.cell(70, 8, label, 1, 0, 'L')
             pdf.cell(40, 8, str(current_val) if isinstance(current_val, str) else f"{current_val:,}", 1, 0, 'R')
             pdf.cell(40, 8, str(max_val) if isinstance(max_val, str) else f"{max_val:,}", 1, 0, 'R')
@@ -175,7 +210,8 @@ def generate_report_pdf(db_file, report_type, timespan=None, start_date=None, en
     
     specs_map = load_specs_from_db(conn) # Load specs from DB here
 
-    pdf = FPDF(orientation="L", unit="mm", format="A4")
+    # Use our new custom PDF class
+    pdf = PDF(orientation="L", unit="mm", format="A4")
     pdf.set_auto_page_break(auto=True, margin=15)
     
     # --- This logic is now self-contained and correct ---
@@ -185,6 +221,9 @@ def generate_report_pdf(db_file, report_type, timespan=None, start_date=None, en
     else:
         title_prefix = "Peak" if timespan in ['24h', '7d', '30d'] else "Raw Data"
         report_title = f"{title_prefix} Report ({timespan})"
+
+    # --- NEW: Add the title page ---
+    create_title_page(pdf, report_title)
 
     # Handle the three different report types
     if report_type == 'table_only':
@@ -197,15 +236,7 @@ def generate_report_pdf(db_file, report_type, timespan=None, start_date=None, en
     elif report_type == 'combined':
         create_summary_table_page(pdf, firewalls, conn, report_title, specs_map, timespan=timespan, start_date=start_date, end_date=end_date)
         
-        # Add a capacity page for each firewall before the graphs page
-        pdf.set_font("Helvetica", "B", 16)
-        pdf.cell(0, 10, "Device Capacity Details", 0, 1, 'C')
-        pdf.ln(5)
-        # We can reuse the capacity report function, but it will add a new page for each firewall.
-        # To make it flow better, we'll call it here. It will create a new page internally.
-        # The create_capacity_report_page function is designed to loop, but we will call it inside our loop.
-        # Let's call a modified version of it.
-        # For simplicity, let's just add the capacity page for each firewall here.
+        # Add the capacity report pages
         create_capacity_report_page(pdf, firewalls, conn)
 
         # Now add the graph pages
@@ -215,33 +246,35 @@ def generate_report_pdf(db_file, report_type, timespan=None, start_date=None, en
             fw_name = fw['hostname'] or fw['ip_address']
             pdf.cell(0, 10, f"Graphs for {fw_name} ({fw['ip_address']})", 0, 1, 'C')
             model = fw['model'] or "Unknown"
-            generation = specs_map.get(model, {}).get('generation', 'N/A')
+            # ** FIX: Add a line break to prevent text from overlapping with charts **
+            generation = specs_map.get(model, {}).get('generation', 'N/A') 
             pdf.set_font("Helvetica", "", 12)
             pdf.cell(0, 10, f"Model: {model} | Generation: {generation}", 0, 1, 'C')
+            pdf.ln(5)
             
             chart_data = _fetch_and_process_data(conn, fw['id'], timespan=timespan, start_date=start_date, end_date=end_date)
             if not chart_data:
                 pdf.set_font("Helvetica", "", 12)
                 pdf.cell(0, 10, "No data for this period.", 0, 1, 'L')
                 continue
-
+            
+            # ** FIX: Use the current Y position instead of a fixed value **
+            chart_y_pos = pdf.get_y()
             title_prefix = chart_data['title_prefix']
-            input_chart = create_chart_image(chart_data['labels'], [{'label': 'Input (Mbps)', 'data': chart_data['input_data_mbps'], 'color': '#ff4500'}], f"{title_prefix} Input Throughput", 'Mbps')
-            output_chart = create_chart_image(chart_data['labels'], [{'label': 'Output (Mbps)', 'data': chart_data['output_data_mbps'], 'color': '#ff4500'}], f"{title_prefix} Output Throughput", 'Mbps')
-            session_chart = create_chart_image(chart_data['labels'], [{'label': 'Active Sessions', 'data': chart_data['session_data'], 'color': 'green'}], f"{title_prefix} Active Sessions", 'Sessions')
-            load_chart = create_chart_image(chart_data['labels'], [{'label': 'CPU Load (%)', 'data': chart_data['cpu_data'], 'color': 'orange'}, {'label': 'DP Load (%)', 'data': chart_data['dataplane_data'], 'color': 'purple'}], f"{title_prefix} CPU & Dataplane Load", 'Load %')
+            input_chart = create_chart_image(chart_data['labels'], [{'label': 'Input (Mbps)', 'data': chart_data['input_data_mbps'], 'color': '#00A5D8'}], f"{title_prefix} Input Throughput", 'Mbps')
+            output_chart = create_chart_image(chart_data['labels'], [{'label': 'Output (Mbps)', 'data': chart_data['output_data_mbps'], 'color': '#58C5E5'}], f"{title_prefix} Output Throughput", 'Mbps')
+            session_chart = create_chart_image(chart_data['labels'], [{'label': 'Active Sessions', 'data': chart_data['session_data'], 'color': '#00A5D8'}], f"{title_prefix} Active Sessions", 'Sessions')
+            load_chart = create_chart_image(chart_data['labels'], [{'label': 'CPU Load (%)', 'data': chart_data['cpu_data'], 'color': '#FF4500'}, {'label': 'DP Load (%)', 'data': chart_data['dataplane_data'], 'color': '#FFA500'}], f"{title_prefix} CPU & Dataplane Load", 'Load %')
             chart_width, chart_height, margin = 130, 70, 15
-            pdf.image(input_chart, x=margin, y=40, w=chart_width, h=chart_height)
-            pdf.image(output_chart, x=margin + chart_width + 10, y=40, w=chart_width, h=chart_height)
-            pdf.image(session_chart, x=margin, y=40 + chart_height + 10, w=chart_width, h=chart_height)
-            pdf.image(load_chart, x=margin + chart_width + 10, y=40 + chart_height + 10, w=chart_width, h=chart_height)
+            # ** NEW: Add SSL Decrypt Sessions chart **
+            ssl_chart = create_chart_image(chart_data['labels'], [{'label': 'SSL Decrypt Sessions', 'data': chart_data['ssl_session_data'], 'color': '#00A5D8'}], f"{title_prefix} SSL Decrypt Sessions", 'Sessions')
+            
+            pdf.image(input_chart, x=margin, y=chart_y_pos, w=chart_width, h=chart_height)
+            pdf.image(output_chart, x=margin + chart_width + 10, y=chart_y_pos, w=chart_width, h=chart_height)
+            pdf.image(session_chart, x=margin, y=chart_y_pos + chart_height + 10, w=chart_width, h=chart_height)
+            pdf.image(ssl_chart, x=margin + chart_width + 10, y=chart_y_pos + chart_height + 10, w=chart_width, h=chart_height)
 
     else: # This is the default 'graphs_only' report
-        pdf.add_page()
-        pdf.set_font("Helvetica", "B", 24); pdf.cell(0, 50, "PAN-OS Performance Report", 0, 1, 'C')
-        pdf.set_font("Helvetica", "", 16); pdf.cell(0, 10, report_title, 0, 1, 'C')
-        pdf.set_font("Helvetica", "", 12); pdf.cell(0, 10, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", 0, 1, 'C')
-        
         for fw in firewalls:
             pdf.add_page()
             pdf.set_font("Helvetica", "B", 16)
@@ -251,21 +284,27 @@ def generate_report_pdf(db_file, report_type, timespan=None, start_date=None, en
             generation = specs_map.get(model, {}).get('generation', 'N/A')
             pdf.set_font("Helvetica", "", 12)
             pdf.cell(0, 10, f"Model: {model} | Generation: {generation}", 0, 1, 'C')
+            pdf.ln(5)
             
             chart_data = _fetch_and_process_data(conn, fw['id'], timespan=timespan, start_date=start_date, end_date=end_date)
             if not chart_data:
-                pdf.set_font("Helvetica", "", 12); pdf.cell(0, 10, "No data for this period.", 0, 1, 'L'); continue
-
+                pdf.set_font("Helvetica", "", 12)
+                pdf.cell(0, 10, "No data for this period.", 0, 1, 'L')
+                continue
+            
+            # ** FIX: Use the current Y position instead of a fixed value **
+            chart_y_pos = pdf.get_y()
             title_prefix = chart_data['title_prefix']
-            input_chart = create_chart_image(chart_data['labels'], [{'label': 'Input (Mbps)', 'data': chart_data['input_data_mbps'], 'color': '#ff4500'}], f"{title_prefix} Input Throughput", 'Mbps')
-            output_chart = create_chart_image(chart_data['labels'], [{'label': 'Output (Mbps)', 'data': chart_data['output_data_mbps'], 'color': '#ff4500'}], f"{title_prefix} Output Throughput", 'Mbps')
-            session_chart = create_chart_image(chart_data['labels'], [{'label': 'Active Sessions', 'data': chart_data['session_data'], 'color': 'green'}], f"{title_prefix} Active Sessions", 'Sessions')
-            load_chart = create_chart_image(chart_data['labels'], [{'label': 'CPU Load (%)', 'data': chart_data['cpu_data'], 'color': 'orange'}, {'label': 'DP Load (%)', 'data': chart_data['dataplane_data'], 'color': 'purple'}], f"{title_prefix} CPU & Dataplane Load", 'Load %')
+            input_chart = create_chart_image(chart_data['labels'], [{'label': 'Input (Mbps)', 'data': chart_data['input_data_mbps'], 'color': '#00A5D8'}], f"{title_prefix} Input Throughput", 'Mbps')
+            output_chart = create_chart_image(chart_data['labels'], [{'label': 'Output (Mbps)', 'data': chart_data['output_data_mbps'], 'color': '#58C5E5'}], f"{title_prefix} Output Throughput", 'Mbps')
+            session_chart = create_chart_image(chart_data['labels'], [{'label': 'Active Sessions', 'data': chart_data['session_data'], 'color': '#00A5D8'}], f"{title_prefix} Active Sessions", 'Sessions')
+            load_chart = create_chart_image(chart_data['labels'], [{'label': 'CPU Load (%)', 'data': chart_data['cpu_data'], 'color': '#FF4500'}, {'label': 'DP Load (%)', 'data': chart_data['dataplane_data'], 'color': '#FFA500'}], f"{title_prefix} CPU & Dataplane Load", 'Load %')
+            ssl_chart = create_chart_image(chart_data['labels'], [{'label': 'SSL Decrypt Sessions', 'data': chart_data['ssl_session_data'], 'color': '#00A5D8'}], f"{title_prefix} SSL Decrypt Sessions", 'Sessions')
             chart_width, chart_height, margin = 130, 70, 15
-            pdf.image(input_chart, x=margin, y=40, w=chart_width, h=chart_height)
-            pdf.image(output_chart, x=margin + chart_width + 10, y=40, w=chart_width, h=chart_height)
-            pdf.image(session_chart, x=margin, y=40 + chart_height + 10, w=chart_width, h=chart_height)
-            pdf.image(load_chart, x=margin + chart_width + 10, y=40 + chart_height + 10, w=chart_width, h=chart_height)
+            pdf.image(input_chart, x=margin, y=chart_y_pos, w=chart_width, h=chart_height)
+            pdf.image(output_chart, x=margin + chart_width + 10, y=chart_y_pos, w=chart_width, h=chart_height)
+            pdf.image(session_chart, x=margin, y=chart_y_pos + chart_height + 10, w=chart_width, h=chart_height)
+            pdf.image(ssl_chart, x=margin + chart_width + 10, y=chart_y_pos + chart_height + 10, w=chart_width, h=chart_height)
 
     conn.close()
     return bytes(pdf.output())

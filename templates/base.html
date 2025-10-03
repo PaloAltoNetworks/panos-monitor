@@ -11,6 +11,15 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
     <style>
         body { padding: 0; } /* Remove all body padding */
+        /* ** NEW: Set the brand color for UI accents like dropdowns and checkboxes ** */
+        :root {
+            --pico-accent-color: #ff4500;
+        }
+        /* ** NEW: Set a wider container for all pages ** */
+        main.container {
+            max-width: 1600px;
+        }
+
         nav.top-nav { 
             position: -webkit-sticky; /* For Safari */
             position: sticky;

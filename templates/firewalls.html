@@ -2,13 +2,6 @@
 
 {% block content %}
 
-{# **CHANGE**: Updated CSS to be more specific and forceful #}
-<style>
-  main.container {
-    max-width: 1600px;
-  }
-</style>
-
 <h2>Manage Firewalls</h2>
 
 <div class="grid">
@@ -48,30 +41,48 @@
 <hr>
 
 <h3>Currently Monitored Firewalls</h3>
-<div class="table-container">
-    <table>
-        <thead>
-            <tr>
-                <th>IP Address</th>
-                <th>Action</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for fw in firewalls %}
-            <tr>
-                <td>{{ fw.ip_address }}</td>
-                <td>
-                    <form action="{{ url_for('delete_firewall', fw_id=fw.id) }}" method="post" onsubmit="return confirm('Are you sure you want to delete this firewall and all its stats?');">
-                        <button type="submit" class="secondary outline">Delete</button>
-                    </form>
-                </td>
-            </tr>
-            {% else %}
-            <tr>
-                <td colspan="2">No firewalls have been added yet.</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
+<form action="{{ url_for('delete_firewalls') }}" method="post" onsubmit="return confirm('Are you sure you want to delete the selected firewalls and all their stats?');">
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 5%;"><input type="checkbox" id="select-all"></th>
+                    <th>IP Address</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for fw in firewalls %}
+                <tr>
+                    <td><input type="checkbox" name="firewall_ids" value="{{ fw.id }}" class="fw-checkbox"></td>
+                    <td>{{ fw.ip_address }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="2">No firewalls have been added yet.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if firewalls %}
+    <button type="submit" class="btn-small btn-panw">Delete Selected</button>
+    {% endif %}
+</form>
+
+<script>
+    document.getElementById('select-all').addEventListener('change', function(event) {
+        const checkboxes = document.querySelectorAll('.fw-checkbox');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = event.target.checked;
+        });
+    });
+
+    document.querySelectorAll('.fw-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            const allCheckboxes = document.querySelectorAll('.fw-checkbox');
+            const allChecked = Array.from(allCheckboxes).every(cb => cb.checked);
+            document.getElementById('select-all').checked = allChecked;
+        });
+    });
+</script>
 {% endblock %}
