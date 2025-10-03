@@ -1,37 +1,38 @@
 # PAN-OS Stats Monitor
 
-A simple, web-based monitoring dashboard for Palo Alto Networks firewalls. This tool polls devices for session count and throughput, stores the data in a local SQLite database, and provides a web interface to view historical performance graphs and export reports.
+A web-based monitoring dashboard for Palo Alto Networks firewalls. This tool polls devices for performance and capacity metrics, stores the data in a local SQLite database, and provides a web interface to view historical graphs, analyze capacity, and export professional reports.
 
 ![Dashboard Screenshot](docs/dashboard-screenshot.png)  
-*Note: The UI has been updated with a new branded theme. This screenshot should be updated to reflect the new look.*
+*Note: The UI has been significantly updated. This screenshot should be updated to reflect the new look.*
 
 ---
 ## Features ✨
 
-* **Web-Based Dashboard:** A clean, centralized dashboard to view the latest status for all monitored firewalls, including their **hostname**, **model**, **PAN-OS version**, status, CPU/DP load, and aggregate throughput.
-* **Capacity Dashboard:** Provides an at-a-glance view of current object usage (rules, routes, tunnels, etc.) against the device's maximum capacity, with color-coded utilization percentages to highlight potential issues.
-* **Configurable Alerting:** A dedicated "Alerts" page highlights any capacity metric that exceeds a user-configurable threshold (set on the Settings page), with the ability to bulk-acknowledge alerts.
-* **Historical Graphing:** Click on any firewall to view detailed historical graphs for its key performance metrics.
-* **Selectable Timeframes:** View graphs and summary data for various timeframes, from the last 5 minutes to the last 30 days.
-* **Detailed Device Specifications:** Automatically polls and displays a comprehensive list of over 35 detailed capacity limits (max sessions, max rules, max tunnels, etc.) for each firewall.
-* **Upgrade Advisor:** Analyzes peak usage against known model specifications and recommends a hardware upgrade if utilization exceeds the configured alert threshold. The logic recommends the next model up within the same hardware generation, providing a practical upgrade path.
-* **Peak Statistics Summary:** View a table of peak values (max sessions, highest throughput, max CPU/DP load) for each firewall over your selected timeframe.
-* **Asynchronous Reporting & Downloads:**
-    * A dedicated "Downloads" page for generating and downloading reports.
-    * PDF reports are generated in the background, so the UI never freezes. The page auto-refreshes until your download is ready.
-    * Export peak statistics to CSV, or generate PDF reports in multiple formats: Capacity, Table Only, Graphs Only, or a Combined report.
-* **CPU & Dataplane Monitoring:** Tracks the load average for both the management plane (peak core) and data plane (average of all cores).
+*   **Modern UI:** A clean, responsive interface with a branded theme and a **dark mode** toggle.
+*   **Status Dashboard:** A centralized view of all monitored firewalls with a live **search/filter bar** and a **manual refresh** button.
+*   **Capacity Dashboard:** Provides an at-a-glance view of current object usage (rules, routes, tunnels, etc.) against the device's maximum capacity, with styled **progress bars** for clear visual feedback.
+*   **Configurable Alerting:** A dedicated "Alerts" page highlights any capacity metric that exceeds a user-configurable threshold. Features bulk-acknowledgment of alerts.
+*   **Historical Graphing:** Click on any firewall to view detailed historical graphs for key performance metrics, including a new chart for **SSL Decrypt Sessions**.
+*   **Flexible Timeframes:** View graphs and summary data for various timeframes (5 mins to 30 days) or select a custom date range.
+*   **Advanced Upgrade Advisor:** Analyzes peak usage and recommends an upgrade path to both the next model in the **same generation** and a comparable model in the **next generation**.
+*   **Professional PDF Reporting:**
+    *   Asynchronous report generation with a status page—the UI never freezes.
+    *   Branded reports featuring the Palo Alto Networks logo, a professional title page, and a clickable **Table of Contents**.
+    *   Multiple report types: Capacity, Table Only, Graphs Only, or a Combined report.
+*   **Detailed Device Discovery:**
+    *   Automatically polls and displays a comprehensive list of over 35 detailed capacity limits (max sessions, max rules, etc.) for each firewall.
+    *   Intelligently uses the correct API commands based on whether a firewall has the advanced routing engine enabled.
 * **Intelligent Discovery & Polling:**
     * Automatically discovers and saves the **hostname**, **model**, and **PAN-OS version** for newly added firewalls.
-    * Intelligently uses the correct API commands to get route counts based on whether a firewall has the advanced routing engine enabled.
     * Asynchronous background jobs for all long-running tasks (data refresh, Panorama import, report generation) with a global status indicator in the navigation bar.
+*   **Database Management:**
+    *   **Backup & Restore:** Easily create on-demand database backups and upload backups for restoration directly from the UI.
+    *   **Automatic Pruning:** Automatically deletes historical statistics older than a configurable number of days (default is 90) to keep the database lean.
 * **Panorama Integration:** Import all connected firewalls directly from your Panorama instance with a single click.
-* **Model Specifications Management:** Add, view, and delete hardware specifications for different firewall models from a dedicated page.
+* **Model Specifications Management:** A full CRUD interface to add, view, **modify**, and **bulk-delete** hardware specifications for different firewall models.
 * **Multi-Firewall Support:** Monitor dozens of firewalls. Firewalls can be added individually or bulk-imported from a text file.
 * **Persistent Storage:** Uses a local SQLite database (`monitoring.db`) to store all configuration and historical statistics.
-* **Web-Based Configuration:** Easily configure API credentials and the polling interval from a dedicated Settings page in the web UI.
 * **Background Polling:** A multi-process background worker continuously polls devices without blocking the web interface.
-* **Server-Side PDF Reporting:** Export multi-page PDF reports with summarized or raw data for various timeframes.
 
 ---
 ## Installation & Setup
@@ -186,10 +187,10 @@ The background poller will automatically detect the model of newly added firewal
 ## How It Works
 
 * **Front-End:** A **Flask** web application serves the HTML pages.
-* **Back-End:** A **background thread** runs a continuous polling loop, which uses a **multiprocessing pool** to poll devices concurrently.
+* **Back-End:** A **background thread** runs a continuous polling loop, which uses a **multiprocessing pool** to poll devices concurrently. Long-running tasks like report generation and Panorama imports are also handled in background threads to keep the UI responsive.
 * **Data Storage:** A single-file **SQLite** database (`monitoring.db`) stores all application data.
 * **Configuration:** Application settings, including encrypted API credentials and hardware specifications for the Upgrade Advisor, are stored in the database.
-* **Security:** The password encryption key is stored in the `secret.key` file. **Important:** Do not delete this file, as it is required to decrypt the stored credentials. If you back up the database, back up this key file as well.
+* **Security:** The password encryption key is stored in the `secret.key` file. **Important:** Do not commit this file to version control. If you back up the database, back up this key file as well.
 * **PDF Generation:** PDF reports are generated entirely on the server using **Matplotlib** to create chart images and **FPDF2** to assemble the document.
 
 ---

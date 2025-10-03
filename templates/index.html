@@ -10,10 +10,20 @@
 
 <h2>Firewall Status Dashboard</h2>
 
-<p>Showing the latest statistics from the last successful poll. Auto-refreshes every {{ polling_interval }} seconds.</p>
+<div class="grid">
+    <div></div>
+    <div>
+        <input type="search" id="searchInput" placeholder="Filter by name, IP, or model..." style="margin-bottom: 0;">
+    </div>
+    <div style="text-align: right;">
+        <form action="{{ url_for('trigger_poll') }}" method="post" style="margin: 0;">
+            <button type="submit" class="btn-small btn-panw">Refresh Now</button>
+        </form>
+    </div>
+</div>
 
 <div class="table-container">
-    <table>
+    <table id="firewallTable">
         <thead>
             <tr>
                 <th>Device-Name</th>
@@ -71,6 +81,47 @@
     setTimeout(() => {
         window.location.reload();
     }, {{ polling_interval * 1000 }});
+
+    const searchInput = document.getElementById('searchInput');
+    const table = document.getElementById('firewallTable');
+    const tableRows = table.getElementsByTagName('tbody')[0].getElementsByTagName('tr');
+
+    function applyFilter() {
+        const filterValue = searchInput.value.toUpperCase();
+        for (let i = 0; i < tableRows.length; i++) {
+            const hostnameCell = tableRows[i].getElementsByTagName('td')[0];
+            const ipCell = tableRows[i].getElementsByTagName('td')[1];
+            const modelCell = tableRows[i].getElementsByTagName('td')[2];
+
+            if (hostnameCell && ipCell && modelCell) {
+                const rowText = (hostnameCell.textContent || hostnameCell.innerText) +
+                                (ipCell.textContent || ipCell.innerText) +
+                                (modelCell.textContent || modelCell.innerText);
+
+                if (rowText.toUpperCase().indexOf(filterValue) > -1) {
+                    tableRows[i].style.display = "";
+                } else {
+                    tableRows[i].style.display = "none";
+                }
+            }
+        }
+    }
+
+    // --- NEW: Save filter to localStorage on keyup ---
+    searchInput.addEventListener('keyup', function() {
+        localStorage.setItem('firewallFilter', searchInput.value);
+        applyFilter();
+    });
+
+    // --- NEW: Load filter from localStorage on page load ---
+    document.addEventListener('DOMContentLoaded', function() {
+        const savedFilter = localStorage.getItem('firewallFilter');
+        if (savedFilter) {
+            searchInput.value = savedFilter;
+            applyFilter();
+        }
+    });
+
 </script>
 
 {% endblock %}

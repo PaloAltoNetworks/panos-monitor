@@ -51,7 +51,35 @@
                 <small>Generate an alert when any capacity metric exceeds this utilization percentage. Existing data will be re-evaluated upon saving.</small>
             </fieldset>
 
+            <hr>
+
+            <fieldset>
+                <legend>Data Retention</legend>
+                <label for="retention_days">Prune Statistics Older Than (days)
+                    <input type="number" id="retention_days" name="retention_days" value="{{ settings.get('DATA_RETENTION_DAYS', 90) }}" required min="1">
+                </label>
+                <small>Automatically delete historical performance data from the database older than this many days. This helps manage database size.</small>
+            </fieldset>
+
             <button type="submit" class="btn-small btn-panw">Save Settings</button>
         </form>
+    </article>
+
+    <article>
+        <h4>Database Management</h4>
+        <p>Create an on-demand backup of the application database. This will trigger a download of the <code>monitoring.db</code> file.</p>
+        <form action="{{ url_for('backup_database') }}" method="post" style="margin: 0;">
+            <button type="submit" class="btn-small btn-panw">Backup Database Now</button>
+        </form>
+        <hr>
+        <h5>Restore from Backup</h5>
+        <p><strong>Warning:</strong> Restoring will overwrite all current data and settings. The application must be restarted to complete the process.</p>
+        <form action="{{ url_for('restore_database') }}" method="post" enctype="multipart/form-data" 
+              onsubmit="return confirm('Are you sure you want to proceed? This will upload the backup file and prepare it for restoration. You will need to manually restart the application.');">
+            <label for="backup_file">Database Backup File (.db)</label>
+            <input type="file" id="backup_file" name="backup_file" accept=".db" required>
+            <button type="submit" class="secondary btn-small">Upload for Restore</button>
+        </form>
+
     </article>
 {% endblock %}

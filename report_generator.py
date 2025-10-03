@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt # Keep this import
 matplotlib.use('Agg')
 
 from app import get_firewall_stats_for_timespan as _fetch_and_process_data, PDF
+from fpdf.outline import TableOfContents
 
 # --- NEW: Remove import from pa_models.py ---
 # from pa_models import SPECS_MAP
@@ -224,19 +225,26 @@ def generate_report_pdf(db_file, report_type, timespan=None, start_date=None, en
 
     # --- NEW: Add the title page ---
     create_title_page(pdf, report_title)
+    
+    # --- NEW: Add a placeholder for the Table of Contents ---
+    pdf.insert_toc_placeholder(TableOfContents().render_toc)
 
     # Handle the three different report types
     if report_type == 'table_only':
+        pdf.start_section("Peak Statistics Summary")
         create_summary_table_page(pdf, firewalls, conn, report_title, specs_map, timespan=timespan, start_date=start_date, end_date=end_date)
 
     elif report_type == 'capacity':
         # This is a new, non-timespan based report
+        pdf.start_section("Device Capacity Details")
         create_capacity_report_page(pdf, firewalls, conn)
     
     elif report_type == 'combined':
+        pdf.start_section("Peak Statistics Summary")
         create_summary_table_page(pdf, firewalls, conn, report_title, specs_map, timespan=timespan, start_date=start_date, end_date=end_date)
         
         # Add the capacity report pages
+        pdf.start_section("Device Capacity Details")
         create_capacity_report_page(pdf, firewalls, conn)
 
         # Now add the graph pages
@@ -244,6 +252,7 @@ def generate_report_pdf(db_file, report_type, timespan=None, start_date=None, en
             pdf.add_page()
             pdf.set_font("Helvetica", "B", 16)
             fw_name = fw['hostname'] or fw['ip_address']
+            pdf.start_section(f"Graphs for {fw_name}", level=1)
             pdf.cell(0, 10, f"Graphs for {fw_name} ({fw['ip_address']})", 0, 1, 'C')
             model = fw['model'] or "Unknown"
             # ** FIX: Add a line break to prevent text from overlapping with charts **
@@ -279,6 +288,8 @@ def generate_report_pdf(db_file, report_type, timespan=None, start_date=None, en
             pdf.add_page()
             pdf.set_font("Helvetica", "B", 16)
             fw_name = fw['hostname'] or fw['ip_address']
+            # --- NEW: Add a section for each firewall in the ToC ---
+            pdf.start_section(f"Graphs for {fw_name}")
             pdf.cell(0, 10, f"Graphs for {fw_name} ({fw['ip_address']})", 0, 1, 'C')
             model = fw['model'] or "Unknown"
             generation = specs_map.get(model, {}).get('generation', 'N/A')

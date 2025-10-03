@@ -1,6 +1,25 @@
 {% extends 'base.html' %}
 
 {% block content %}
+<style>
+    /* ** NEW: Custom styles for progress bars ** */
+    .util-bar {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .util-bar progress {
+        margin-bottom: 0;
+        height: 1.25rem;
+    }
+    .util-bar progress.warning::-webkit-progress-value { background-color: orange; }
+    .util-bar progress.warning::-moz-progress-bar { background-color: orange; }
+    .util-bar progress.critical::-webkit-progress-value { background-color: red; }
+    .util-bar progress.critical::-moz-progress-bar { background-color: red; }
+    .util-bar span {
+        font-weight: bold;
+    }
+</style>
 
 <h2>Capacity Dashboard</h2>
 
@@ -47,17 +66,24 @@
             </tr>
         </thead>
         <tbody>
-            <tr><td>Security Rules</td><td>{{ "{:,}".format(fw.current_rules) }}</td><td>{{ "{:,}".format(fw.max_rules) if fw.max_rules else 'N/A' }}</td><td {% if fw.util_rules >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_rules >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_rules) }}%</td></tr>
-            <tr><td>NAT Rules</td><td>{{ "{:,}".format(fw.current_nat_rules) }}</td><td>{{ "{:,}".format(fw.max_nat_rules) if fw.max_nat_rules else 'N/A' }}</td><td {% if fw.util_nat_rules >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_nat_rules >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_nat_rules) }}%</td></tr>
-            <tr><td>Address Objects</td><td>{{ "{:,}".format(fw.current_address_objects) }}</td><td>{{ "{:,}".format(fw.max_address_objects) if fw.max_address_objects else 'N/A' }}</td><td {% if fw.util_address >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_address >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_address) }}%</td></tr>
-            <tr><td>Service Objects</td><td>{{ "{:,}".format(fw.current_service_objects) }}</td><td>{{ "{:,}".format(fw.max_service_objects) if fw.max_service_objects else 'N/A' }}</td><td {% if fw.util_service >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_service >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_service) }}%</td></tr>
-            <tr><td>IPsec Tunnels</td><td>{{ "{:,}".format(fw.current_ipsec_tunnels) }}</td><td>{{ "{:,}".format(fw.max_ipsec_tunnels) if fw.max_ipsec_tunnels else 'N/A' }}</td><td {% if fw.util_ipsec >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_ipsec >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_ipsec) }}%</td></tr>
-            <tr><td>Routes</td><td>{% if fw.current_routes is not none %}{{ "{:,}".format(fw.current_routes) }}{% else %}N/A{% endif %}</td><td>{{ "{:,}".format(fw.max_routes) if fw.max_routes else 'N/A' }}</td><td {% if fw.util_routes >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_routes >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_routes) }}%</td></tr>
-            <tr><td>Multicast Routes</td><td>{% if fw.current_mroutes is not none %}{{ "{:,}".format(fw.current_mroutes) }}{% else %}N/A{% endif %}</td><td>{{ "{:,}".format(fw.max_mroutes) if fw.max_mroutes else 'N/A' }}</td><td {% if fw.util_mroutes >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_mroutes >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_mroutes) }}%</td></tr>
-            <tr><td>ARP Entries</td><td>{% if fw.current_arp_entries is not none %}{{ "{:,}".format(fw.current_arp_entries) }}{% else %}N/A{% endif %}</td><td>{{ "{:,}".format(fw.max_arp_entries) if fw.max_arp_entries else 'N/A' }}</td><td {% if fw.util_arp >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_arp >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_arp) }}%</td></tr>
-            <tr><td>BFD Sessions</td><td>{% if fw.current_bfd_sessions is not none %}{{ "{:,}".format(fw.current_bfd_sessions) }}{% else %}N/A{% endif %}</td><td>{{ "{:,}".format(fw.max_bfd_sessions) if fw.max_bfd_sessions else 'N/A' }}</td><td {% if fw.util_bfd >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_bfd >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_bfd) }}%</td></tr>
-            <tr><td>DNS Cache Entries</td><td>{% if fw.current_dns_cache is not none %}{{ "{:,}".format(fw.current_dns_cache) }}{% else %}N/A{% endif %}</td><td>{{ "{:,}".format(fw.max_dns_cache) if fw.max_dns_cache else 'N/A' }}</td><td {% if fw.util_dns_cache >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_dns_cache >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_dns_cache) }}%</td></tr>
-            <tr><td>Registered IPs (User-ID)</td><td>{% if fw.current_registered_ips is not none %}{{ "{:,}".format(fw.current_registered_ips) }}{% else %}N/A{% endif %}</td><td>{{ "{:,}".format(fw.max_registered_ips) if fw.max_registered_ips else 'N/A' }}</td><td {% if fw.util_registered_ips >= 80 %}style="color:red; font-weight:bold;"{% elif fw.util_registered_ips >= 60 %}style="color:orange;"{% endif %}>{{ "%.1f"|format(fw.util_registered_ips) }}%</td></tr>
+            {% macro util_cell(util_val) %}
+                <div class="util-bar">
+                    <progress value="{{ util_val }}" max="100" class="{{ 'critical' if util_val >= 80 else 'warning' if util_val >= 60 else '' }}"></progress>
+                    <span>{{ "%.1f"|format(util_val) }}%</span>
+                </div>
+            {% endmacro %}
+            <tr><td>Security Rules</td><td>{{ "{:,}".format(fw.current_rules) }}</td><td>{{ "{:,}".format(fw.max_rules) if fw.max_rules else 'N/A' }}</td><td>{{ util_cell(fw.util_rules) }}</td></tr>
+            <tr><td>NAT Rules</td><td>{{ "{:,}".format(fw.current_nat_rules) }}</td><td>{{ "{:,}".format(fw.max_nat_rules) if fw.max_nat_rules else 'N/A' }}</td><td>{{ util_cell(fw.util_nat_rules) }}</td></tr>
+            <tr><td>SSL Decryption Sessions</td><td>{{ "{:,}".format(fw.current_ssl_decrypt_sessions) if fw.current_ssl_decrypt_sessions is not none else 'N/A' }}</td><td>{{ "{:,}".format(fw.max_ssl_decrypt_sessions) if fw.max_ssl_decrypt_sessions else 'N/A' }}</td><td>{{ util_cell(fw.util_ssl_decrypt_sessions) }}</td></tr>
+            <tr><td>Address Objects</td><td>{{ "{:,}".format(fw.current_address_objects) }}</td><td>{{ "{:,}".format(fw.max_address_objects) if fw.max_address_objects else 'N/A' }}</td><td>{{ util_cell(fw.util_address) }}</td></tr>
+            <tr><td>Service Objects</td><td>{{ "{:,}".format(fw.current_service_objects) }}</td><td>{{ "{:,}".format(fw.max_service_objects) if fw.max_service_objects else 'N/A' }}</td><td>{{ util_cell(fw.util_service) }}</td></tr>
+            <tr><td>IPsec Tunnels</td><td>{{ "{:,}".format(fw.current_ipsec_tunnels) }}</td><td>{{ "{:,}".format(fw.max_ipsec_tunnels) if fw.max_ipsec_tunnels else 'N/A' }}</td><td>{{ util_cell(fw.util_ipsec) }}</td></tr>
+            <tr><td>Routes</td><td>{% if fw.current_routes is not none %}{{ "{:,}".format(fw.current_routes) }}{% else %}N/A{% endif %}</td><td>{{ "{:,}".format(fw.max_routes) if fw.max_routes else 'N/A' }}</td><td>{{ util_cell(fw.util_routes) }}</td></tr>
+            <tr><td>Multicast Routes</td><td>{% if fw.current_mroutes is not none %}{{ "{:,}".format(fw.current_mroutes) }}{% else %}N/A{% endif %}</td><td>{{ "{:,}".format(fw.max_mroutes) if fw.max_mroutes else 'N/A' }}</td><td>{{ util_cell(fw.util_mroutes) }}</td></tr>
+            <tr><td>ARP Entries</td><td>{% if fw.current_arp_entries is not none %}{{ "{:,}".format(fw.current_arp_entries) }}{% else %}N/A{% endif %}</td><td>{{ "{:,}".format(fw.max_arp_entries) if fw.max_arp_entries else 'N/A' }}</td><td>{{ util_cell(fw.util_arp) }}</td></tr>
+            <tr><td>BFD Sessions</td><td>{% if fw.current_bfd_sessions is not none %}{{ "{:,}".format(fw.current_bfd_sessions) }}{% else %}N/A{% endif %}</td><td>{{ "{:,}".format(fw.max_bfd_sessions) if fw.max_bfd_sessions else 'N/A' }}</td><td>{{ util_cell(fw.util_bfd) }}</td></tr>
+            <tr><td>DNS Cache Entries</td><td>{% if fw.current_dns_cache is not none %}{{ "{:,}".format(fw.current_dns_cache) }}{% else %}N/A{% endif %}</td><td>{{ "{:,}".format(fw.max_dns_cache) if fw.max_dns_cache else 'N/A' }}</td><td>{{ util_cell(fw.util_dns_cache) }}</td></tr>
+            <tr><td>Registered IPs (User-ID)</td><td>{% if fw.current_registered_ips is not none %}{{ "{:,}".format(fw.current_registered_ips) }}{% else %}N/A{% endif %}</td><td>{{ "{:,}".format(fw.max_registered_ips) if fw.max_registered_ips else 'N/A' }}</td><td>{{ util_cell(fw.util_registered_ips) }}</td></tr>
         </tbody>
     </table>
     {% else %}

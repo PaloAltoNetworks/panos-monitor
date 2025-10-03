@@ -1,9 +1,9 @@
 import flask, io, csv
-from flask import Response
+from flask import Response, send_file
 import sqlite3
 import os
 import time
-import requests
+import requests, shutil
 from datetime import datetime
 import xml.etree.ElementTree as ET
 from urllib3.exceptions import InsecureRequestWarning
@@ -83,11 +83,16 @@ app.secret_key = os.urandom(24)
 # --- NEW: Global lock for thread-safe database writes ---
 db_lock = threading.Lock()
 background_task_running = threading.Event()
+background_task_message = ""
+message_lock = threading.Lock()
+manual_poll_event = threading.Event()
 
 # --- NEW: Context processor to inject background task status into all templates ---
 @app.context_processor
 def inject_background_task_status():
-    return dict(background_task_is_running=background_task_running.is_set())
+    with message_lock:
+        message = background_task_message if background_task_running.is_set() else ""
+    return dict(background_task_is_running=background_task_running.is_set(), background_task_message=message)
 
 @app.context_processor
 def inject_theme():
@@ -113,6 +118,7 @@ def init_db():
     conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('THEME', 'light')")
     conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('ALERT_THRESHOLD', '80')")
     conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('POLL_INTERVAL', '30')")
+    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('DATA_RETENTION_DAYS', '90')")
     
     # ** NEW: Add 'model' column to the firewalls table if it doesn't exist **
     cursor = conn.cursor()
@@ -455,16 +461,38 @@ def advisor():
                 res['session_util'] = (peak_sessions / spec['max_sessions']) * 100 if spec['max_sessions'] > 0 else 0
                 res['throughput_util'] = (peak_throughput_mbps / spec['max_throughput_mbps']) * 100 if spec['max_throughput_mbps'] > 0 else 0
 
-                res['recommendation'] = 'Sized Appropriately'
+                recommendations = []
                 if res['session_util'] >= alert_threshold or res['throughput_util'] >= alert_threshold:
+                    # --- Same-gen upgrade logic ---
                     current_generation = spec.get('generation', 'N/A')
                     same_gen_models = sorted([s for s in specs_list if s['generation'] == current_generation], key=lambda x: x['max_throughput_mbps'])
                     current_index = next((i for i, item in enumerate(same_gen_models) if item["model"] == fw['model']), -1)
 
                     if 0 <= current_index < len(same_gen_models) - 1:
-                        res['recommendation'] = f"Upgrade to {same_gen_models[current_index + 1]['model']}"
+                        recommendations.append(f"Same Gen: {same_gen_models[current_index + 1]['model']}")
                     else:
-                        res['recommendation'] = "Upgrade Recommended (Highest in Series)"
+                        recommendations.append("Highest in Series")
+
+                    # --- Next-gen upgrade logic ---
+                    try:
+                        current_gen_num = int(''.join(filter(str.isdigit, str(current_generation))))
+                        next_gen_str = str(current_gen_num + 1)
+                        
+                        # Find potential next-gen models
+                        next_gen_candidates = sorted(
+                            [s for s in specs_list if str(s['generation']).startswith(next_gen_str) and s['max_throughput_mbps'] >= spec['max_throughput_mbps'] and s['max_sessions'] >= spec['max_sessions']],
+                            key=lambda x: x['max_throughput_mbps']
+                        )
+                        
+                        if next_gen_candidates:
+                            recommendations.append(f"Next Gen: {next_gen_candidates[0]['model']}")
+
+                    except (ValueError, TypeError):
+                        # This handles cases where generation is not a simple number (e.g., 'N/A')
+                        pass
+
+                res['recommendation'] = " | ".join(recommendations) if recommendations else 'Sized Appropriately'
+
             else:
                 res.update({'generation': 'N/A', 'max_sessions': 'N/A', 'max_throughput': 'N/A', 'session_util': 0, 'throughput_util': 0, 'recommendation': 'Unknown Model'})
             
@@ -501,12 +529,11 @@ def settings():
         # ** NEW: Save Alerting settings **
         conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
                      ('ALERT_THRESHOLD', flask.request.form['alert_threshold']))
+        # ** NEW: Save Data Retention settings **
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                     ('DATA_RETENTION_DAYS', flask.request.form['retention_days']))
         
         conn.commit()
-
-        # ** NEW: Re-evaluate alerts with the new threshold **
-        _re_evaluate_alerts(conn, int(flask.request.form['alert_threshold']))
-
         flask.flash("Settings saved successfully!")
         return flask.redirect(flask.url_for('settings'))
 
@@ -514,6 +541,33 @@ def settings():
     settings_data = {row['key']: row['value'] for row in conn.execute("SELECT key, value FROM settings").fetchall()}
     conn.close()
     return flask.render_template('settings.html', settings=settings_data)
+
+@app.route('/backup_database', methods=['POST'])
+def backup_database():
+    """Serves the database file for download with a timestamp."""
+    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    return send_file(DB_FILE, as_attachment=True,
+                     download_name=f'monitoring-backup-{timestamp}.db')
+
+@app.route('/restore_database', methods=['POST'])
+def restore_database():
+    """Saves an uploaded database file for manual restoration."""
+    if 'backup_file' not in flask.request.files:
+        flask.flash('No file part in the request.', 'error')
+        return flask.redirect(flask.url_for('settings'))
+    file = flask.request.files['backup_file']
+    if file.filename == '':
+        flask.flash('No file selected for uploading.', 'warning')
+        return flask.redirect(flask.url_for('settings'))
+    if file and file.filename.endswith('.db'):
+        # Save the file with a specific name to indicate it's a pending restore
+        restore_path = os.path.join(os.path.dirname(__file__), f"{DB_FILE}.pending_restore")
+        file.save(restore_path)
+        flask.flash("Restore file uploaded successfully. Please stop the application, replace 'monitoring.db' with 'monitoring.db.pending_restore', and restart the application to complete the process.", "success")
+    else:
+        flask.flash('Invalid file type. Please upload a .db file.', 'error')
+    
+    return flask.redirect(flask.url_for('settings'))
 
 def _re_evaluate_alerts(conn, alert_threshold):
     """Re-evaluates all current usage data against a given threshold and creates alerts."""
@@ -589,6 +643,9 @@ def export_csv(fw_id):
 
 def _generate_pdf_worker(report_type, job_id, timespan=None, start_date=None, end_date=None):
     """Worker function to generate PDF in the background."""
+    global background_task_message
+    with message_lock:
+        background_task_message = "Generating PDF..."
     print(f"Background PDF worker started for job {job_id}.")
     background_task_running.set()
     try:
@@ -620,6 +677,8 @@ def _generate_pdf_worker(report_type, job_id, timespan=None, start_date=None, en
                     conn.close()
     finally:
         print(f"Background PDF worker for job {job_id} finished.")
+        with message_lock:
+            background_task_message = ""
         background_task_running.clear()
 
 @app.route('/export/pdf', methods=['GET', 'POST'])
@@ -817,6 +876,7 @@ def capacity_dashboard():
         fw_dict['util_bfd'] = (fw['current_bfd_sessions'] / fw['max_bfd_sessions'] * 100) if fw['current_bfd_sessions'] is not None and fw['max_bfd_sessions'] else 0
         fw_dict['util_dns_cache'] = (fw['current_dns_cache'] / fw['max_dns_cache'] * 100) if fw['current_dns_cache'] is not None and fw['max_dns_cache'] else 0
         fw_dict['util_registered_ips'] = (fw['current_registered_ips'] / fw['max_registered_ips'] * 100) if fw['current_registered_ips'] is not None and fw['max_registered_ips'] else 0
+        fw_dict['util_ssl_decrypt_sessions'] = (fw['current_ssl_decrypt_sessions'] / fw['max_ssl_decrypt_sessions'] * 100) if fw['current_ssl_decrypt_sessions'] is not None and fw['max_ssl_decrypt_sessions'] else 0
         results.append(fw_dict)
     
     return flask.render_template('capacity.html', firewalls=results)
@@ -891,6 +951,9 @@ def import_firewalls():
 
 def _import_from_panorama_worker():
     """Worker function to run the Panorama import in a background thread."""
+    global background_task_message
+    with message_lock:
+        background_task_message = "Importing from Panorama..."
     background_task_running.set()
     try:
         print("Background Panorama import worker started.")
@@ -937,6 +1000,8 @@ def _import_from_panorama_worker():
                 conn.close()
     finally:
         print("Background Panorama import worker finished.")
+        with message_lock:
+            background_task_message = ""
         background_task_running.clear()
 
 @app.route('/import_from_panorama', methods=['POST'])
@@ -1022,6 +1087,9 @@ def delete_models():
 
 def _refresh_specs_worker():
     """Worker function to run the spec refresh in a background thread."""
+    global background_task_message
+    with message_lock:
+        background_task_message = "Refreshing specs..."
     background_task_running.set()
     try:
         print("Background spec refresh worker started.")
@@ -1071,6 +1139,8 @@ def _refresh_specs_worker():
             conn.close()
     finally:
         print("Background spec refresh worker finished.")
+        with message_lock:
+            background_task_message = ""
         background_task_running.clear()
 
 @app.route('/refresh_specs', methods=['POST'])
@@ -1096,6 +1166,9 @@ def refresh_specs():
 
 def _refresh_capacity_worker():
     """Worker function to run the capacity refresh in a background thread."""
+    global background_task_message
+    with message_lock:
+        background_task_message = "Refreshing capacity..."
     background_task_running.set()
     try:
         print("Background capacity refresh worker started.")
@@ -1154,6 +1227,8 @@ def _refresh_capacity_worker():
             conn.close()
     finally:
         print("Background capacity refresh worker finished.")
+        with message_lock:
+            background_task_message = ""
         background_task_running.clear()
 
 @app.route('/refresh_capacity', methods=['POST'])
@@ -1177,6 +1252,17 @@ def refresh_capacity():
     thread = threading.Thread(target=_refresh_capacity_worker)
     thread.start()
     return flask.redirect(flask.url_for('capacity_dashboard'))
+
+@app.route('/trigger_poll', methods=['POST'])
+def trigger_poll():
+    """Sets an event to trigger the background poller immediately."""
+    if not background_task_running.is_set():
+        global background_task_message
+        with message_lock:
+            background_task_message = "Polling data..."
+        background_task_running.set()
+        manual_poll_event.set()
+    return flask.redirect(flask.url_for('index'))
 
 def poll_current_usage(conn, firewall_id, host, api_key):
     """Polls a single firewall for its current object counts."""
@@ -1516,6 +1602,7 @@ def background_worker_loop():
         fw_user = settings.get('FW_USER')
         encrypted_pass = settings.get('FW_PASSWORD')
         poll_interval = int(settings.get('POLL_INTERVAL', 30))
+        retention_days = int(settings.get('DATA_RETENTION_DAYS', 90))
 
         if not fw_user or not encrypted_pass:
             print("Worker: Credentials not set in database. Waiting...")
@@ -1592,13 +1679,6 @@ def background_worker_loop():
         # --- SAVE RESULTS ---
         # Explicitly format the datetime object to a string to avoid DeprecationWarning in Python 3.12+
         timestamp_now_str = datetime.now().isoformat(sep=' ', timespec='microseconds')
-        # ** FIX: Use a lock for thread-safe database access **
-        # ** NEW: Also check if a manual task is running before trying to write **
-        if background_task_running.is_set():
-            print("Worker: Manual refresh in progress. Skipping this write cycle.")
-            conn.close()
-            time.sleep(poll_interval)
-            continue
         with db_lock:
             for res in results:
                 host = res['host']
@@ -1614,11 +1694,21 @@ def background_worker_loop():
                             'INSERT INTO stats (firewall_id, timestamp, active_sessions, ssl_decrypt_sessions, total_input_bps, total_output_bps, cpu_load, dataplane_load) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                             (firewall_id, timestamp_now_str, s['active_sessions'], s['ssl_decrypt_sessions'], s['total_input_bps'], s['total_output_bps'], s['cpu_load'], s['dataplane_load'])
                         )
+            
+            # --- NEW: Prune old statistics ---
+            prune_query = f"DELETE FROM stats WHERE timestamp < datetime('now', '-{retention_days} days')"
+            cursor = conn.execute(prune_query)
+            if cursor.rowcount > 0: print(f"Pruned {cursor.rowcount} old stat records (older than {retention_days} days).")
+
             conn.commit()
 
         conn.close()
+        if background_task_running.is_set():
+            background_task_running.clear()
         print(f"Polling cycle finished. Sleeping for {poll_interval} seconds.")
-        time.sleep(poll_interval)
+        # Wait for the poll_interval, or until the manual_poll_event is set
+        manual_poll_event.wait(timeout=poll_interval)
+        manual_poll_event.clear() # Reset the event after waking up
 
 def get_firewall_stats_for_timespan(conn, fw_id, timespan=None, start_date=None, end_date=None):
     """

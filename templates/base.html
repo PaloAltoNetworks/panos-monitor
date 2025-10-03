@@ -164,7 +164,7 @@
                 </li>
                 {# ** NEW: Background Task Status Indicator (Moved) ** #}
                 {% if background_task_is_running %}
-                <li><span aria-busy="true" class="status-indicator" style="font-size: 0.9rem;">Refreshing data...</span></li>
+                <li><span aria-busy="true" class="status-indicator" style="font-size: 0.9rem;">{{ background_task_message or 'Processing...' }}</span></li>
                 {% endif %}
             </ul>
         </div>
