@@ -43,9 +43,12 @@
 
 <article>
     <h4>Existing Models</h4>
+    <div style="margin-bottom: 1rem;">
+        <input type="search" id="searchInput" placeholder="Filter by model or generation..." style="margin-bottom: 0;">
+    </div>
     <form action="{{ url_for('delete_models') }}" method="post" onsubmit="return confirm('Are you sure you want to delete the selected models?');">
         <div class="table-container">
-            <table>
+            <table id="modelsTable">
                 <thead>
                     <tr>
                         <th style="width: 5%;"><input type="checkbox" id="select-all"></th>
@@ -91,6 +94,43 @@
 </article>
 
 <script>
+    // --- NEW: Search/Filter Logic ---
+    const searchInput = document.getElementById('searchInput');
+    const table = document.getElementById('modelsTable');
+    const tableRows = table.getElementsByTagName('tbody')[0].getElementsByTagName('tr');
+
+    function applyFilter() {
+        const filterValue = searchInput.value.toUpperCase();
+        for (let i = 0; i < tableRows.length; i++) {
+            const modelCell = tableRows[i].getElementsByTagName('td')[1];
+            const generationCell = tableRows[i].getElementsByTagName('td')[2];
+
+            if (modelCell && generationCell) {
+                const rowText = (modelCell.textContent || modelCell.innerText) +
+                                (generationCell.textContent || generationCell.innerText);
+
+                if (rowText.toUpperCase().indexOf(filterValue) > -1) {
+                    tableRows[i].style.display = "";
+                } else {
+                    tableRows[i].style.display = "none";
+                }
+            }
+        }
+    }
+
+    searchInput.addEventListener('keyup', function() {
+        localStorage.setItem('modelFilter', searchInput.value);
+        applyFilter();
+    });
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const savedFilter = localStorage.getItem('modelFilter');
+        if (savedFilter) {
+            searchInput.value = savedFilter;
+            applyFilter();
+        }
+    });
+
     const modelForm = document.getElementById('model-form');
     const modelInput = document.getElementById('model');
     const generationInput = document.getElementById('generation');
