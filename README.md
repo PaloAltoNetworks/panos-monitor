@@ -144,11 +144,27 @@ python3 app.py
 ```
 On the first run, the application will automatically create a `monitoring.db` database file and a `secret.key` encryption key file in the project directory.
 
+### Create the Admin Account & Log In
+
+The dashboard requires authentication — **every** route is protected. On first launch, open `http://<your-server-ip>:4000` and you will be redirected to a one-time **setup** page to create the administrator username and password (minimum 8 characters). After that you'll be sent to the **login** page. You can change the credentials later from the **Settings** page ("Admin Credentials").
+
+### Security Configuration (recommended for production)
+
+The following environment variables harden the deployment. All are optional; sensible defaults apply if unset.
+
+| Variable | Purpose |
+| --- | --- |
+| `PANOS_MONITOR_KEY_FILE` | Path to the Fernet **encryption key file**. Set this to a location **outside the project directory** (with `0600` permissions) so a leaked database backup can't be decrypted with a co-located key. Defaults to `secret.key` next to `app.py`, which prints a warning at startup. |
+| `PANOS_MONITOR_KEY` | Supply the Fernet key **directly** (nothing is written to disk). Overrides `PANOS_MONITOR_KEY_FILE`. Useful with a secrets manager. |
+| `PANOS_MONITOR_SECRET_KEY` | Flask session-signing key. If unset, a stable one is generated and stored in the database so logins survive restarts. |
+| `PANOS_MONITOR_HTTPS` | Set to `1` when serving over HTTPS (e.g. behind a TLS-terminating reverse proxy) to mark the session cookie `Secure`. |
+
+> **Credential encryption at rest:** Firewall and Panorama passwords are stored encrypted with Fernet. The security of that encryption depends on keeping the key separate from the database. Move the key off the app host (or use `PANOS_MONITOR_KEY`) for production deployments.
+
 ### 2. Initial Configuration
 
-1.  Open your web browser and navigate to `http://127.0.0.1:4000`.
-2.  Navigate to the **Settings** page using the link in the navigation bar. The application runs on port **4000** by default, so the URL will be `http://<your-server-ip>:4000`.
-3.  Fill in the **Firewall Polling Settings**. These are the API credentials the poller will use to connect to individual firewalls.
+1.  Once logged in, navigate to the **Settings** page using the link in the navigation bar.
+2.  Fill in the **Firewall Polling Settings**. These are the API credentials the poller will use to connect to individual firewalls.
 4.  Fill in the **Panorama Import Settings**. These are the credentials for your Panorama instance, used only for importing devices.
 5.  Set the **Polling Interval** and click **Save Settings**.
 

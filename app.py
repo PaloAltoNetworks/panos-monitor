@@ -19,7 +19,11 @@ import logging
 
 # --- Configuration ---
 DB_FILE = "monitoring.db"
-KEY_FILE = "secret.key"
+# Encryption key location. Precedence at runtime (see load_key()):
+#   1. PANOS_MONITOR_KEY       - the Fernet key itself (nothing written to disk)
+#   2. PANOS_MONITOR_KEY_FILE  - path to the key file (put this OUTSIDE this repo)
+#   3. secret.key              - legacy default, co-located with app.py (discouraged)
+KEY_FILE = os.environ.get("PANOS_MONITOR_KEY_FILE", "secret.key")
 
 # Suppress insecure request warnings
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
@@ -64,13 +68,66 @@ class PDF(FPDF):
         self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
 
 # --- Encryption Functions ---
-def generate_key():
-    key = Fernet.generate_key()
-    with open(KEY_FILE, "wb") as key_file: key_file.write(key)
+_key_secured = False
+
+
+def _validate_key(key):
+    """Fail fast (at startup) if a supplied key is not a valid Fernet key."""
+    try:
+        Fernet(key)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(
+            "PANOS_MONITOR_KEY is not a valid Fernet key (expected a url-safe "
+            f"base64-encoded 32-byte key): {exc}")
     return key
 
+
+def _secure_key_file(path):
+    """Tighten key-file perms to 0600 and warn once if it sits next to the app.
+
+    Co-location is the risk called out in the vulnerability report: whoever
+    obtains a database backup *and* this key file can decrypt every stored
+    credential. Runs its checks only once to stay quiet on per-request loads.
+    """
+    global _key_secured
+    if _key_secured:
+        return
+    _key_secured = True
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    if os.path.dirname(os.path.abspath(path)) == app_dir:
+        print(
+            "WARNING: The Fernet encryption key is stored inside the application "
+            f"directory ('{os.path.basename(path)}'). Anyone who obtains a database "
+            "backup together with this file can decrypt all stored firewall and "
+            "Panorama credentials. Move the key outside this directory by setting "
+            "PANOS_MONITOR_KEY_FILE to an external path (0600), or supply the key "
+            "directly via the PANOS_MONITOR_KEY environment variable.")
+
+
+def generate_key(path):
+    """Create a new key file at `path` with 0600 permissions from creation."""
+    key = Fernet.generate_key()
+    # Open with O_CREAT|0600 so the key is never briefly world-readable on disk.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as key_file:
+        key_file.write(key)
+    _secure_key_file(path)
+    return key
+
+
 def load_key():
-    if not os.path.exists(KEY_FILE): return generate_key()
+    # 1. Key provided directly via environment — nothing is written to disk.
+    env_key = os.environ.get("PANOS_MONITOR_KEY")
+    if env_key:
+        return _validate_key(env_key.encode())
+    # 2/3. Key file, path from PANOS_MONITOR_KEY_FILE or the legacy default.
+    if not os.path.exists(KEY_FILE):
+        return generate_key(KEY_FILE)
+    _secure_key_file(KEY_FILE)
     return open(KEY_FILE, "rb").read()
 
 def encrypt_message(message, key):
