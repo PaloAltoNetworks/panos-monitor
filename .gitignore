@@ -1,0 +1,14 @@
+# Secrets and local data — never commit these
+secret.key
+*.db
+*.db.pending_restore
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# OS
+.DS_Store

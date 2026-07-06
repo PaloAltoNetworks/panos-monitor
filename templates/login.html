@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sign in &middot; PAN-OS Monitor</title>
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <style>
+        :root { --pico-accent-color: #ff4500; }
+        body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .login-card { width: 100%; max-width: 420px; }
+        .brand { text-align: center; margin-bottom: 1.5rem; }
+        .brand strong { color: #ff4500; font-size: 1.4rem; }
+        .btn-panw { background-color: #ff4500; border-color: #ff4500; color: #fff; width: 100%; }
+        .btn-panw:hover { background-color: #e03e00; border-color: #e03e00; }
+    </style>
+  </head>
+  <body>
+    <main class="login-card">
+        <div class="brand"><strong>PAN-OS Monitor</strong></div>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <article class="flash-{{ category }}">{{ message }}</article>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        <article>
+            <h3>Sign in</h3>
+            <form method="post" action="{{ url_for('login') }}">
+                <input type="hidden" name="next" value="{{ next }}">
+                <label for="username">Username
+                    <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+                </label>
+                <label for="password">Password
+                    <input type="password" id="password" name="password" autocomplete="current-password" required>
+                </label>
+                <button type="submit" class="btn-panw">Sign in</button>
+            </form>
+        </article>
+    </main>
+  </body>
+</html>

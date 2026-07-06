@@ -74,12 +74,35 @@
         <hr>
         <h5>Restore from Backup</h5>
         <p><strong>Warning:</strong> Restoring will overwrite all current data and settings. The application must be restarted to complete the process.</p>
-        <form action="{{ url_for('restore_database') }}" method="post" enctype="multipart/form-data" 
+        <form action="{{ url_for('restore_database') }}" method="post" enctype="multipart/form-data"
               onsubmit="return confirm('Are you sure you want to proceed? This will upload the backup file and prepare it for restoration. You will need to manually restart the application.');">
             <label for="backup_file">Database Backup File (.db)</label>
             <input type="file" id="backup_file" name="backup_file" accept=".db" required>
             <button type="submit" class="secondary btn-small">Upload for Restore</button>
         </form>
 
+    </article>
+
+    <article>
+        <h4>Admin Credentials</h4>
+        <p>Change the username and/or password used to sign in to this dashboard.</p>
+        <form action="{{ url_for('change_password') }}" method="post">
+            <label for="new_username">Username
+                <input type="text" id="new_username" name="new_username" value="{{ session.username or '' }}" autocomplete="username">
+            </label>
+            <label for="current_password">Current Password
+                <input type="password" id="current_password" name="current_password" autocomplete="current-password" required>
+            </label>
+            <div class="grid">
+                <label for="new_password">New Password
+                    <input type="password" id="new_password" name="new_password" autocomplete="new-password" required>
+                    <small>Minimum 8 characters.</small>
+                </label>
+                <label for="confirm_password">Confirm New Password
+                    <input type="password" id="confirm_password" name="confirm_password" autocomplete="new-password" required>
+                </label>
+            </div>
+            <button type="submit" class="btn-small btn-panw">Update Credentials</button>
+        </form>
     </article>
 {% endblock %}

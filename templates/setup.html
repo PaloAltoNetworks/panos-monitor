@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>First-run setup &middot; PAN-OS Monitor</title>
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <style>
+        :root { --pico-accent-color: #ff4500; }
+        body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .setup-card { width: 100%; max-width: 460px; }
+        .brand { text-align: center; margin-bottom: 1.5rem; }
+        .brand strong { color: #ff4500; font-size: 1.4rem; }
+        .btn-panw { background-color: #ff4500; border-color: #ff4500; color: #fff; width: 100%; }
+        .btn-panw:hover { background-color: #e03e00; border-color: #e03e00; }
+    </style>
+  </head>
+  <body>
+    <main class="setup-card">
+        <div class="brand"><strong>PAN-OS Monitor</strong></div>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <article class="flash-{{ category }}">{{ message }}</article>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        <article>
+            <h3>Create admin account</h3>
+            <p>No account exists yet. Create the administrator credentials used to access this dashboard.</p>
+            <form method="post" action="{{ url_for('setup') }}">
+                <label for="username">Username
+                    <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+                </label>
+                <label for="password">Password
+                    <input type="password" id="password" name="password" autocomplete="new-password" required>
+                    <small>Minimum 8 characters.</small>
+                </label>
+                <label for="confirm">Confirm password
+                    <input type="password" id="confirm" name="confirm" autocomplete="new-password" required>
+                </label>
+                <button type="submit" class="btn-panw">Create account</button>
+            </form>
+        </article>
+    </main>
+  </body>
+</html>

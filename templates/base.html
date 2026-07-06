@@ -157,6 +157,9 @@
                 <li><a href="{{ url_for('manage_firewalls') }}" {% if request.endpoint == 'manage_firewalls' %}aria-current="page"{% endif %}>Manage Firewalls</a></li>
                 <li><a href="{{ url_for('model_specs') }}" {% if request.endpoint == 'model_specs' %}aria-current="page"{% endif %}>Model Specs</a></li>
                 <li><a href="{{ url_for('settings') }}" {% if request.endpoint == 'settings' %}aria-current="page"{% endif %}>Settings</a></li>
+                {% if session.logged_in %}
+                <li><a href="{{ url_for('logout') }}" title="Sign out">Logout{% if session.username %} ({{ session.username }}){% endif %}</a></li>
+                {% endif %}
                 <li>
                     <label for="theme-switch" style="margin-bottom: 0; display: flex; align-items: center;">
                         <input type="checkbox" id="theme-switch" name="theme-switch" role="switch" style="margin-right: 0.5rem;">

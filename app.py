@@ -4,13 +4,16 @@ import sqlite3
 import os
 import time
 import requests, shutil, re
-from datetime import datetime
+from datetime import datetime, timedelta
 import xml.etree.ElementTree as ET
 from urllib3.exceptions import InsecureRequestWarning
 import multiprocessing
 import threading
 from cryptography.fernet import Fernet
 import uuid
+import hmac
+import secrets
+from werkzeug.security import generate_password_hash, check_password_hash
 import report_generator
 import logging
 
@@ -78,7 +81,16 @@ def decrypt_message(encrypted_message, key):
 
 # --- Flask App Setup ---
 app = flask.Flask(__name__)
-app.secret_key = os.urandom(24) 
+# Ephemeral default so the app is never left with an empty secret; replaced at
+# startup by configure_session_secret() with a stable, persisted value.
+app.secret_key = os.urandom(24)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    # Enable when serving over HTTPS (set PANOS_MONITOR_HTTPS=1).
+    SESSION_COOKIE_SECURE=os.environ.get('PANOS_MONITOR_HTTPS', '').lower() in ('1', 'true', 'yes'),
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
+)
 
 # --- NEW: Global lock for thread-safe database writes ---
 db_lock = threading.Lock()
@@ -86,6 +98,174 @@ background_task_running = threading.Event()
 background_task_message = ""
 message_lock = threading.Lock()
 manual_poll_event = threading.Event()
+
+# --- Authentication ---
+# Endpoints reachable without an authenticated session. Everything else is
+# gated by require_login() below. This closes the class of bug where sensitive
+# routes (credential settings, database backup/restore, polling triggers) were
+# served to any unauthenticated caller.
+PUBLIC_ENDPOINTS = {'login', 'setup', 'static'}
+
+
+def admin_is_configured():
+    """True once an admin password hash has been stored (post first-run setup)."""
+    conn = get_db_connection()
+    row = conn.execute("SELECT value FROM settings WHERE key = 'ADMIN_PASSWORD_HASH'").fetchone()
+    conn.close()
+    return bool(row and row['value'])
+
+
+def set_admin_credentials(username, password):
+    """Store the admin username and a salted password hash."""
+    conn = get_db_connection()
+    with db_lock:
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('ADMIN_USERNAME', ?)", (username,))
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('ADMIN_PASSWORD_HASH', ?)",
+                     (generate_password_hash(password, method='pbkdf2:sha256'),))
+        conn.commit()
+    conn.close()
+
+
+def verify_admin(username, password):
+    """Constant-time verification of a supplied username/password pair."""
+    conn = get_db_connection()
+    rows = {r['key']: r['value'] for r in conn.execute(
+        "SELECT key, value FROM settings WHERE key IN ('ADMIN_USERNAME', 'ADMIN_PASSWORD_HASH')").fetchall()}
+    conn.close()
+    stored_user = rows.get('ADMIN_USERNAME')
+    stored_hash = rows.get('ADMIN_PASSWORD_HASH')
+    if not stored_user or not stored_hash:
+        return False
+    # Evaluate both comparisons to avoid leaking which field was wrong via timing.
+    user_ok = hmac.compare_digest(stored_user, username or '')
+    pass_ok = check_password_hash(stored_hash, password or '')
+    return user_ok and pass_ok
+
+
+def configure_session_secret():
+    """Give Flask a stable signing key so sessions survive restarts.
+
+    Uses PANOS_MONITOR_SECRET_KEY if set; otherwise generates one once and
+    persists it in the settings table.
+    """
+    env_secret = os.environ.get('PANOS_MONITOR_SECRET_KEY')
+    if env_secret:
+        app.secret_key = env_secret
+        return
+    conn = get_db_connection()
+    row = conn.execute("SELECT value FROM settings WHERE key = 'SESSION_SECRET'").fetchone()
+    if row and row['value']:
+        secret = row['value']
+    else:
+        secret = secrets.token_hex(32)
+        with db_lock:
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('SESSION_SECRET', ?)", (secret,))
+            conn.commit()
+    conn.close()
+    app.secret_key = secret
+
+
+@app.before_request
+def require_login():
+    """Global authentication gate applied to every request."""
+    endpoint = flask.request.endpoint
+
+    # Static assets are always public so the login/setup pages can style themselves.
+    if endpoint == 'static':
+        return None
+
+    # First run: no admin exists yet -> force account creation.
+    if not admin_is_configured():
+        if endpoint == 'setup':
+            return None
+        return flask.redirect(flask.url_for('setup'))
+
+    # Admin exists: the one-time setup page is no longer reachable.
+    if endpoint == 'setup':
+        return flask.redirect(flask.url_for('index'))
+
+    # The login page/handler must be reachable while unauthenticated.
+    if endpoint == 'login':
+        return None
+
+    # Everything else requires a valid session.
+    if not flask.session.get('logged_in'):
+        if flask.request.method == 'GET':
+            return flask.redirect(flask.url_for('login', next=flask.request.path))
+        # Non-GET (form posts, API calls, curl) get a hard 401 rather than a redirect.
+        flask.abort(401)
+
+    return None
+
+
+@app.route('/setup', methods=['GET', 'POST'])
+def setup():
+    """First-run creation of the single admin account."""
+    if flask.request.method == 'POST':
+        username = flask.request.form.get('username', '').strip()
+        password = flask.request.form.get('password', '')
+        confirm = flask.request.form.get('confirm', '')
+        if not username or not password:
+            flask.flash('Username and password are required.', 'error')
+        elif len(password) < 8:
+            flask.flash('Password must be at least 8 characters.', 'error')
+        elif password != confirm:
+            flask.flash('Passwords do not match.', 'error')
+        else:
+            set_admin_credentials(username, password)
+            flask.flash('Admin account created. Please log in.', 'success')
+            return flask.redirect(flask.url_for('login'))
+    return flask.render_template('setup.html')
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if flask.session.get('logged_in'):
+        return flask.redirect(flask.url_for('index'))
+    if flask.request.method == 'POST':
+        username = flask.request.form.get('username', '')
+        password = flask.request.form.get('password', '')
+        if verify_admin(username, password):
+            flask.session.clear()
+            flask.session['logged_in'] = True
+            flask.session['username'] = username
+            flask.session.permanent = True
+            next_url = flask.request.form.get('next') or flask.request.args.get('next', '')
+            # Only honor local paths to avoid an open-redirect via ?next=.
+            if next_url and next_url.startswith('/') and not next_url.startswith('//'):
+                return flask.redirect(next_url)
+            return flask.redirect(flask.url_for('index'))
+        flask.flash('Invalid username or password.', 'error')
+    return flask.render_template('login.html', next=flask.request.args.get('next', ''))
+
+
+@app.route('/logout')
+def logout():
+    flask.session.clear()
+    flask.flash('You have been logged out.', 'success')
+    return flask.redirect(flask.url_for('login'))
+
+
+@app.route('/change_password', methods=['POST'])
+def change_password():
+    """Change the admin username/password from the Settings page."""
+    current = flask.request.form.get('current_password', '')
+    new = flask.request.form.get('new_password', '')
+    confirm = flask.request.form.get('confirm_password', '')
+    new_username = flask.request.form.get('new_username', '').strip()
+    username = flask.session.get('username', '')
+
+    if not verify_admin(username, current):
+        flask.flash('Current password is incorrect.', 'error')
+    elif len(new) < 8:
+        flask.flash('New password must be at least 8 characters.', 'error')
+    elif new != confirm:
+        flask.flash('New passwords do not match.', 'error')
+    else:
+        set_admin_credentials(new_username or username, new)
+        flask.session['username'] = new_username or username
+        flask.flash('Credentials updated successfully.', 'success')
+    return flask.redirect(flask.url_for('settings'))
 
 # --- NEW: Context processor to inject background task status into all templates ---
 @app.context_processor
@@ -1823,6 +2003,7 @@ if __name__ == '__main__':
 
     load_key()
     init_db()
+    configure_session_secret()
     worker_thread = threading.Thread(target=background_worker_loop, daemon=True)
     worker_thread.start()
     log = logging.getLogger('werkzeug')
