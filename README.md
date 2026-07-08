@@ -146,7 +146,16 @@ On the first run, the application will automatically create a `monitoring.db` da
 
 ### Create the Admin Account & Log In
 
-The dashboard requires authentication — **every** route is protected. On first launch, open `http://<your-server-ip>:4000` and you will be redirected to a one-time **setup** page to create the administrator username and password (minimum 8 characters). After that you'll be sent to the **login** page. You can change the credentials later from the **Settings** page ("Admin Credentials").
+The dashboard requires authentication — **every** route is protected. On first launch, the server prints a one-time **setup token** to its console/log, e.g.:
+
+```
+========================================================================
+FIRST-RUN SETUP REQUIRED — no admin account exists yet.
+    SETUP TOKEN: Kmn-ghY1...
+========================================================================
+```
+
+Open `http://<your-server-ip>:4000`; you will be redirected to the **setup** page. Enter the setup token together with the administrator username and password (minimum 8 characters). The token is required so that only someone with access to the server console — not any random visitor — can create the admin account. After setup you'll be sent to the **login** page, and you can change credentials later from **Settings → Admin Credentials**.
 
 ### Security Configuration (recommended for production)
 

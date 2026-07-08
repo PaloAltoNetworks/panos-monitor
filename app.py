@@ -172,6 +172,28 @@ def admin_is_configured():
     return bool(row and row['value'])
 
 
+# One-time token required to complete first-run setup. Set at startup only when
+# no admin exists yet, and printed solely to the server console. This prevents an
+# unauthenticated attacker from racing to /setup and creating the admin account
+# on an instance that already holds firewall/Panorama credentials.
+SETUP_TOKEN = None
+
+
+def init_setup_token():
+    global SETUP_TOKEN
+    if admin_is_configured():
+        SETUP_TOKEN = None
+        return
+    SETUP_TOKEN = secrets.token_urlsafe(24)
+    banner = "=" * 72
+    print(banner)
+    print("FIRST-RUN SETUP REQUIRED — no admin account exists yet.")
+    print("Open the dashboard and enter this one-time setup token to create the")
+    print("administrator account. It is shown only here, in the server console:")
+    print(f"\n    SETUP TOKEN: {SETUP_TOKEN}\n")
+    print(banner)
+
+
 def set_admin_credentials(username, password):
     """Store the admin username and a salted password hash."""
     conn = get_db_connection()
@@ -258,11 +280,16 @@ def require_login():
 @app.route('/setup', methods=['GET', 'POST'])
 def setup():
     """First-run creation of the single admin account."""
+    global SETUP_TOKEN
     if flask.request.method == 'POST':
+        token = flask.request.form.get('setup_token', '')
         username = flask.request.form.get('username', '').strip()
         password = flask.request.form.get('password', '')
         confirm = flask.request.form.get('confirm', '')
-        if not username or not password:
+        # Verify the console-issued token first (constant-time).
+        if not SETUP_TOKEN or not hmac.compare_digest(SETUP_TOKEN, token):
+            flask.flash('Invalid or missing setup token. Check the server console for the current token.', 'error')
+        elif not username or not password:
             flask.flash('Username and password are required.', 'error')
         elif len(password) < 8:
             flask.flash('Password must be at least 8 characters.', 'error')
@@ -270,6 +297,7 @@ def setup():
             flask.flash('Passwords do not match.', 'error')
         else:
             set_admin_credentials(username, password)
+            SETUP_TOKEN = None  # single use — setup is now closed
             flask.flash('Admin account created. Please log in.', 'success')
             return flask.redirect(flask.url_for('login'))
     return flask.render_template('setup.html')
@@ -2061,6 +2089,7 @@ if __name__ == '__main__':
     load_key()
     init_db()
     configure_session_secret()
+    init_setup_token()
     worker_thread = threading.Thread(target=background_worker_loop, daemon=True)
     worker_thread.start()
     log = logging.getLogger('werkzeug')

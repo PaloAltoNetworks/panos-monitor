@@ -30,8 +30,12 @@
             <h3>Create admin account</h3>
             <p>No account exists yet. Create the administrator credentials used to access this dashboard.</p>
             <form method="post" action="{{ url_for('setup') }}">
+                <label for="setup_token">Setup Token
+                    <input type="text" id="setup_token" name="setup_token" autocomplete="off" required autofocus>
+                    <small>Printed in the server console/log at startup.</small>
+                </label>
                 <label for="username">Username
-                    <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+                    <input type="text" id="username" name="username" autocomplete="username" required>
                 </label>
                 <label for="password">Password
                     <input type="password" id="password" name="password" autocomplete="new-password" required>
